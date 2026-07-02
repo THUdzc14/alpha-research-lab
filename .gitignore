@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Reports / generated figures
+reports/figures/*
+!reports/figures/.gitkeep
+
+# Test scripts
+test_scripts/*
+
+# OS / IDE
+.DS_Store
+.vscode/

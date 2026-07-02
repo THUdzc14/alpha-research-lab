@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: alpha-research-lab
+Version: 0.1.0
+Summary: Systematic alpha research framework for factor construction, signal validation, backtesting, and risk monitoring.
+Requires-Python: >=3.10
