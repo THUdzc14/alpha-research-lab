@@ -64,7 +64,7 @@ alpha-research-lab/
 ## Setup
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/THUdzc14/alpha-research-lab.git
 cd alpha-research-lab
 
 python -m venv .venv
