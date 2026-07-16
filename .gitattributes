@@ -1,0 +1,17 @@
+# Normalise text files and store them as LF in Git
+* text=auto eol=lf
+
+# Windows command files should use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.parquet binary
+*.xlsx binary
+*.xls binary
