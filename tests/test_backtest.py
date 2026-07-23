@@ -255,8 +255,10 @@ def test_summarise_backtest_legs():
     assert set(summary["portfolio"]) == {
         "long_leg",
         "short_leg",
-        "gross_long_short",
-        "net_long_short",
+        "stock_long_short",
+        "benchmark_hedge",
+        "gross_portfolio",
+        "net_portfolio",
     }
 
 

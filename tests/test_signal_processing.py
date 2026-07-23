@@ -7,6 +7,7 @@ from alpha_research.signal_processing import (
     cross_sectional_zscore,
     process_factor,
     winsorise_cross_section,
+    grouped_zscore,
 )
 
 
@@ -136,9 +137,9 @@ def test_missing_values_remain_missing():
         output_prefix="factor",
     )
 
-    assert np.isnan(result.loc[0, "factor_winsorised"])
-    assert np.isnan(result.loc[0, "factor_z"])
-    assert np.isnan(result.loc[0, "factor_rank"])
+    assert np.isnan(result["factor_winsorised"].iloc[0])
+    assert np.isnan(result["factor_z"].iloc[0])
+    assert np.isnan(result["factor_rank"].iloc[0])
 
 
 def test_zero_dispersion_returns_nan_zscores():
@@ -156,3 +157,37 @@ def test_zero_dispersion_returns_nan_zscores():
     )
 
     assert zscores.isna().all()
+
+
+def test_sector_neutral_zscore_has_zero_mean_within_sector():
+    panel = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-01-01"] * 6),
+            "sector": ["Tech"] * 3 + ["Health"] * 3,
+            "factor": [1.0, 2.0, 3.0, 10.0, 20.0, 30.0],
+        }
+    )
+
+    result = grouped_zscore(
+        panel,
+        column="factor",
+        group_columns=["date", "sector"],
+        min_observations=3,
+    )
+
+    panel["z"] = result
+
+    means = panel.groupby(["date", "sector"])["z"].mean()
+
+    assert np.allclose(means, 0.0)
+
+
+def test_benchmark_hedge_offsets_stock_beta():
+    weights = pd.Series({"AAA": 0.5, "BBB": 0.5, "CCC": -0.5, "DDD": -0.5})
+
+    betas = pd.Series({"AAA": 1.5, "BBB": 1.3, "CCC": 0.7, "DDD": 0.5})
+
+    stock_beta = float((weights * betas).sum())
+    benchmark_weight = -stock_beta
+
+    assert stock_beta + benchmark_weight == pytest.approx(0.0)

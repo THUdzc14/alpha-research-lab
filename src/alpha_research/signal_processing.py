@@ -145,3 +145,69 @@ def process_factor_columns(
         )
 
     return df
+
+
+def grouped_zscore(
+    panel: pd.DataFrame,
+    column: str,
+    group_columns: list[str],
+    ddof: int = 0,
+    min_observations: int = 3,
+) -> pd.Series:
+    """Calculate z-scores within specified cross-sectional groups.
+
+    Example:
+        group_columns=["date", "sector"]
+
+    Groups with fewer than `min_observations`, or zero dispersion,
+    receive NaN.
+    """
+    required = {column, *group_columns}
+    missing = required - set(panel.columns)
+
+    if missing:
+        raise ValueError(f"Missing required columns: {sorted(missing)}")
+
+    def _zscore(group: pd.Series) -> pd.Series:
+        valid = group.dropna()
+
+        result = pd.Series(
+            np.nan,
+            index=group.index,
+            dtype="float64",
+        )
+
+        if len(valid) < min_observations:
+            return result
+
+        std = valid.std(ddof=ddof)
+
+        if pd.isna(std) or std <= 0:
+            return result
+
+        result.loc[valid.index] = (valid - valid.mean()) / std
+
+        return result
+
+    return panel.groupby(group_columns)[column].transform(_zscore)
+
+
+def add_sector_neutral_factor(
+    panel: pd.DataFrame,
+    factor_column: str,
+    output_column: str,
+    sector_column: str = "sector",
+    min_sector_observations: int = 3,
+) -> pd.DataFrame:
+    """Add a factor z-score calculated within each date and sector."""
+    df = panel.copy()
+
+    df[output_column] = grouped_zscore(
+        df,
+        column=factor_column,
+        group_columns=["date", sector_column],
+        ddof=0,
+        min_observations=min_sector_observations,
+    )
+
+    return df
