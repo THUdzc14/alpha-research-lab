@@ -3,17 +3,21 @@ from __future__ import annotations
 from alpha_research.config.paths import PROCESSED_DATA_DIR, RAW_DATA_DIR
 from alpha_research.data_loader import load_parquet, save_parquet
 from alpha_research.factors import add_raw_factors
+from alpha_research.risk import (
+    calculate_rolling_market_model,
+    calculate_rolling_stock_beta,
+)
 from alpha_research.signal_processing import (
     add_sector_neutral_factor,
     process_factor_columns,
 )
-from alpha_research.risk import calculate_rolling_stock_beta
 
 FACTOR_MAP = {
     "mom_12_1m_raw": "mom_12_1m",
     "mom_3m_raw": "mom_3m",
     "reversal_1m_raw": "reversal_1m",
     "realised_vol_63_raw": "realised_vol_63",
+    "idio_vol_63_raw": "idio_vol_63",
 }
 
 
@@ -22,9 +26,38 @@ def main() -> None:
     output_path = PROCESSED_DATA_DIR / "factor_panel.parquet"
 
     panel = load_parquet(input_path)
+    spy = load_parquet(RAW_DATA_DIR / "spy_benchmark.parquet")
 
+    if "ticker" in spy.columns:
+        spy = spy.loc[spy["ticker"] == "SPY"].copy()
+
+    # Build factors that depend only on the equity panel.
     factor_panel = add_raw_factors(panel)
 
+    # Estimate the 63-day stock–SPY model.
+    factor_panel = calculate_rolling_market_model(
+        factor_panel,
+        benchmark=spy,
+        window=63,
+        min_periods=63,
+        annualisation_factor=252,
+        output_prefix="market_model_63",
+    )
+
+    # Publish only idiosyncratic volatility as a raw factor.
+    factor_panel = factor_panel.rename(
+        columns={
+            "market_model_63_idio_vol": "idio_vol_63_raw",
+        }
+    ).drop(
+        columns=[
+            "market_model_63_alpha",
+            "market_model_63_beta",
+            "market_model_63_residual",
+        ]
+    )
+
+    # Add winsorised, z-score, and rank variants.
     factor_panel = process_factor_columns(
         factor_panel,
         factor_map=FACTOR_MAP,
@@ -32,13 +65,8 @@ def main() -> None:
         upper_quantile=0.99,
     )
 
-    # Add sector-neutral factors
-    for factor_prefix in [
-        "mom_12_1m",
-        "mom_3m",
-        "reversal_1m",
-        "realised_vol_63",
-    ]:
+    # Add sector-neutral variants.
+    for factor_prefix in FACTOR_MAP.values():
         factor_panel = add_sector_neutral_factor(
             factor_panel,
             factor_column=f"{factor_prefix}_winsorised",
@@ -47,12 +75,7 @@ def main() -> None:
             min_sector_observations=3,
         )
 
-    # Add rolling beta to SPY
-    spy = load_parquet(RAW_DATA_DIR / "spy_benchmark.parquet")
-
-    if "ticker" in spy.columns:
-        spy = spy.loc[spy["ticker"] == "SPY"].copy()
-
+    # Retain the separate 126-day beta used for portfolio risk analysis.
     stock_beta = calculate_rolling_stock_beta(
         factor_panel,
         benchmark=spy,

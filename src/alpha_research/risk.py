@@ -348,3 +348,183 @@ def calculate_rolling_stock_beta(
     )
 
     return merged[["date", "ticker", output_column]]
+
+
+def calculate_rolling_market_model(
+    equity: pd.DataFrame,
+    benchmark: pd.DataFrame,
+    window: int = 63,
+    min_periods: int | None = None,
+    annualisation_factor: int = 252,
+    output_prefix: str = "market_model",
+) -> pd.DataFrame:
+    """Estimate a rolling single-factor market model for each ticker.
+
+    The model is:
+
+        stock_return = alpha + beta * market_return + residual
+
+    Rolling estimates use only observations through the current date.
+    Idiosyncratic volatility is the annualised sample standard deviation
+    of the in-window residuals.
+
+    Parameters
+    ----------
+    equity
+        Equity panel containing ``date``, ``ticker``, and ``ret_1d``.
+    benchmark
+        Benchmark data containing ``date`` and ``adj_close``.
+    window
+        Maximum rolling-window length.
+    min_periods
+        Minimum number of aligned observations required. Defaults to
+        ``window``.
+    annualisation_factor
+        Number of trading periods per year.
+    output_prefix
+        Prefix used for the four output columns.
+
+    Returns
+    -------
+    pd.DataFrame
+        A copy of ``equity`` with rolling alpha, beta, current residual,
+        and annualised idiosyncratic volatility appended.
+    """
+    if min_periods is None:
+        min_periods = window
+
+    if window < 2:
+        raise ValueError("window must be at least 2.")
+
+    if not 2 <= min_periods <= window:
+        raise ValueError("min_periods must be between 2 and window.")
+
+    if annualisation_factor <= 0:
+        raise ValueError("annualisation_factor must be positive.")
+
+    required_equity_columns = {
+        "date",
+        "ticker",
+        "ret_1d",
+    }
+    required_benchmark_columns = {
+        "date",
+        "adj_close",
+    }
+
+    missing_equity_columns = required_equity_columns - set(equity.columns)
+    missing_benchmark_columns = required_benchmark_columns - set(benchmark.columns)
+
+    if missing_equity_columns:
+        raise ValueError(
+            "Equity data is missing required columns: "
+            f"{sorted(missing_equity_columns)}"
+        )
+
+    if missing_benchmark_columns:
+        raise ValueError(
+            "Benchmark data is missing required columns: "
+            f"{sorted(missing_benchmark_columns)}"
+        )
+
+    result = equity.copy()
+    result["date"] = pd.to_datetime(result["date"])
+    result["_original_order"] = np.arange(len(result))
+
+    market = benchmark[["date", "adj_close"]].copy()
+    market["date"] = pd.to_datetime(market["date"])
+    market = market.sort_values("date")
+
+    if market["date"].duplicated().any():
+        raise ValueError("Benchmark data contains duplicate dates.")
+
+    market["_market_ret_1d"] = market["adj_close"].pct_change()
+
+    result = result.merge(
+        market[["date", "_market_ret_1d"]],
+        on="date",
+        how="left",
+        validate="many_to_one",
+    )
+
+    alpha_column = f"{output_prefix}_alpha"
+    beta_column = f"{output_prefix}_beta"
+    residual_column = f"{output_prefix}_residual"
+    idio_vol_column = f"{output_prefix}_idio_vol"
+
+    def calculate_for_ticker(
+        group: pd.DataFrame,
+    ) -> pd.DataFrame:
+        group = group.sort_values("date").copy()
+
+        stock_return = group["ret_1d"]
+        market_return = group["_market_ret_1d"]
+
+        # Both rolling series must use exactly the same aligned dates.
+        paired_stock = stock_return.where(market_return.notna())
+        paired_market = market_return.where(stock_return.notna())
+
+        rolling_stock = paired_stock.rolling(
+            window=window,
+            min_periods=min_periods,
+        )
+        rolling_market = paired_market.rolling(
+            window=window,
+            min_periods=min_periods,
+        )
+
+        stock_mean = rolling_stock.mean()
+        market_mean = rolling_market.mean()
+
+        stock_variance = rolling_stock.var(ddof=1)
+        market_variance = rolling_market.var(ddof=1)
+        covariance = rolling_stock.cov(paired_market)
+
+        valid_market_variance = market_variance.notna() & (market_variance > 0.0)
+
+        beta = (covariance / market_variance).where(valid_market_variance)
+
+        alpha = (stock_mean - beta * market_mean).where(valid_market_variance)
+
+        residual_variance = (stock_variance - covariance.pow(2) / market_variance).clip(
+            lower=0.0
+        )
+
+        group[alpha_column] = alpha
+        group[beta_column] = beta
+
+        # This is the residual of the current observation under the
+        # rolling model estimated through the current date.
+        group[residual_column] = (paired_stock - alpha - beta * paired_market).where(
+            valid_market_variance
+        )
+
+        group[idio_vol_column] = (
+            np.sqrt(residual_variance) * np.sqrt(annualisation_factor)
+        ).where(valid_market_variance)
+
+        return group
+
+    result = pd.concat(
+        [
+            calculate_for_ticker(group)
+            for _, group in result.groupby(
+                "ticker",
+                sort=False,
+            )
+        ],
+        ignore_index=True,
+    )
+
+    result = (
+        result.sort_values("_original_order")
+        .drop(
+            columns=[
+                "_market_ret_1d",
+                "_original_order",
+            ]
+        )
+        .reset_index(drop=True)
+    )
+
+    return result

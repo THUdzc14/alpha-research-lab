@@ -180,14 +180,3 @@ def test_sector_neutral_zscore_has_zero_mean_within_sector():
     means = panel.groupby(["date", "sector"])["z"].mean()
 
     assert np.allclose(means, 0.0)
-
-
-def test_benchmark_hedge_offsets_stock_beta():
-    weights = pd.Series({"AAA": 0.5, "BBB": 0.5, "CCC": -0.5, "DDD": -0.5})
-
-    betas = pd.Series({"AAA": 1.5, "BBB": 1.3, "CCC": 0.7, "DDD": 0.5})
-
-    stock_beta = float((weights * betas).sum())
-    benchmark_weight = -stock_beta
-
-    assert stock_beta + benchmark_weight == pytest.approx(0.0)

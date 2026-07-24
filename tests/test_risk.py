@@ -5,6 +5,7 @@ import pytest
 from alpha_research.risk import (
     calculate_market_exposure,
     calculate_rolling_beta,
+    calculate_rolling_market_model,
     calculate_sector_exposure,
     calculate_strategy_exposures,
     prepare_benchmark_returns,
@@ -180,3 +181,250 @@ def test_benchmark_hedge_offsets_stock_beta():
     benchmark_weight = -stock_beta
 
     assert stock_beta + benchmark_weight == pytest.approx(0.0)
+
+
+def make_market_model_data(
+    observations: int = 12,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Create aligned synthetic stock and market data."""
+    dates = pd.bdate_range(
+        "2024-01-01",
+        periods=observations + 1,
+    )
+
+    market_returns = np.resize(
+        np.array(
+            [0.01, -0.02, 0.015, 0.005, -0.01, 0.02],
+            dtype=float,
+        ),
+        observations,
+    )
+
+    noise = np.resize(
+        np.array(
+            [0.001, -0.002, 0.003, -0.001, 0.002, -0.003],
+            dtype=float,
+        ),
+        observations,
+    )
+
+    benchmark_prices = [100.0]
+    stock_prices = [50.0]
+
+    for market_return, residual in zip(market_returns, noise):
+        stock_return = 0.0005 + 1.4 * market_return + residual
+
+        benchmark_prices.append(benchmark_prices[-1] * (1.0 + market_return))
+        stock_prices.append(stock_prices[-1] * (1.0 + stock_return))
+
+    equity = pd.DataFrame(
+        {
+            "date": dates,
+            "ticker": "AAA",
+            "adj_close": stock_prices,
+        }
+    )
+    equity["ret_1d"] = equity["adj_close"].pct_change()
+
+    benchmark = pd.DataFrame(
+        {
+            "date": dates,
+            "adj_close": benchmark_prices,
+        }
+    )
+
+    return equity, benchmark
+
+
+def test_rolling_market_model_matches_window_ols():
+    equity, benchmark = make_market_model_data()
+
+    result = calculate_rolling_market_model(
+        equity,
+        benchmark,
+        window=6,
+        min_periods=6,
+        annualisation_factor=252,
+        output_prefix="model",
+    )
+
+    stock_window = equity["ret_1d"].iloc[-6:].to_numpy()
+    market_window = benchmark["adj_close"].pct_change().iloc[-6:].to_numpy()
+
+    design = np.column_stack([np.ones(6), market_window])
+
+    alpha, beta = np.linalg.lstsq(
+        design,
+        stock_window,
+        rcond=None,
+    )[0]
+
+    residuals = stock_window - (alpha + beta * market_window)
+
+    expected_idio_vol = residuals.std(ddof=1) * np.sqrt(252)
+
+    assert result["model_alpha"].iloc[-1] == pytest.approx(alpha)
+    assert result["model_beta"].iloc[-1] == pytest.approx(beta)
+    assert result["model_residual"].iloc[-1] == pytest.approx(residuals[-1])
+    assert result["model_idio_vol"].iloc[-1] == pytest.approx(expected_idio_vol)
+
+
+def test_rolling_market_model_uses_no_future_returns():
+    equity, benchmark = make_market_model_data()
+
+    baseline = calculate_rolling_market_model(
+        equity,
+        benchmark,
+        window=6,
+        min_periods=6,
+        output_prefix="model",
+    )
+
+    changed_equity = equity.copy()
+    changed_equity.loc[
+        changed_equity.index[-1],
+        "ret_1d",
+    ] = 0.75
+
+    changed = calculate_rolling_market_model(
+        changed_equity,
+        benchmark,
+        window=6,
+        min_periods=6,
+        output_prefix="model",
+    )
+
+    columns = [
+        "model_alpha",
+        "model_beta",
+        "model_idio_vol",
+    ]
+
+    assert np.allclose(
+        baseline[columns].iloc[-2],
+        changed[columns].iloc[-2],
+    )
+
+
+def test_rolling_market_model_separates_tickers():
+    equity, benchmark = make_market_model_data()
+
+    aaa_only = calculate_rolling_market_model(
+        equity,
+        benchmark,
+        window=6,
+        min_periods=6,
+        output_prefix="model",
+    )
+
+    second = equity.copy()
+    second["ticker"] = "BBB"
+    second["ret_1d"] = 0.001 + 0.5 * benchmark["adj_close"].pct_change()
+
+    panel = pd.concat(
+        [second, equity],
+        ignore_index=True,
+    )
+
+    combined = calculate_rolling_market_model(
+        panel,
+        benchmark,
+        window=6,
+        min_periods=6,
+        output_prefix="model",
+    )
+
+    columns = [
+        "model_alpha",
+        "model_beta",
+        "model_idio_vol",
+    ]
+
+    combined_aaa = combined.loc[combined["ticker"] == "AAA", columns].reset_index(
+        drop=True
+    )
+
+    assert np.allclose(
+        aaa_only[columns],
+        combined_aaa,
+        equal_nan=True,
+    )
+
+    final_betas = combined.groupby("ticker")["model_beta"].last()
+    assert final_betas["BBB"] == pytest.approx(0.5)
+
+
+def test_rolling_market_model_requires_sufficient_history():
+    equity, benchmark = make_market_model_data(
+        observations=6,
+    )
+
+    result = calculate_rolling_market_model(
+        equity,
+        benchmark,
+        window=6,
+        min_periods=6,
+        output_prefix="model",
+    )
+
+    assert result["model_idio_vol"].iloc[:6].isna().all()
+    assert pd.notna(result["model_idio_vol"].iloc[6])
+
+
+def test_rolling_market_model_counts_only_aligned_returns():
+    equity, benchmark = make_market_model_data(
+        observations=10,
+    )
+
+    # Remove one benchmark date from the first usable window.
+    benchmark = benchmark.drop(index=3).reset_index(drop=True)
+
+    result = calculate_rolling_market_model(
+        equity,
+        benchmark,
+        window=6,
+        min_periods=6,
+        output_prefix="model",
+    )
+
+    assert pd.isna(result["model_idio_vol"].iloc[6])
+    assert pd.notna(result["model_idio_vol"].iloc[-1])
+
+
+def test_rolling_market_model_handles_zero_market_variance():
+    dates = pd.bdate_range(
+        "2024-01-01",
+        periods=8,
+    )
+
+    equity = pd.DataFrame(
+        {
+            "date": dates,
+            "ticker": "AAA",
+            "ret_1d": np.linspace(-0.01, 0.01, len(dates)),
+        }
+    )
+
+    benchmark = pd.DataFrame(
+        {
+            "date": dates,
+            "adj_close": 100.0,
+        }
+    )
+
+    result = calculate_rolling_market_model(
+        equity,
+        benchmark,
+        window=5,
+        min_periods=5,
+        output_prefix="model",
+    )
+
+    output_columns = [
+        "model_alpha",
+        "model_beta",
+        "model_residual",
+        "model_idio_vol",
+    ]
+
+    assert result[output_columns].isna().all().all()
