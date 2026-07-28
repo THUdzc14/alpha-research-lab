@@ -12,6 +12,8 @@ from alpha_research.backtest import (
     run_rebalance_offset_backtests,
     summarise_backtest_legs,
     summarise_backtest_subperiods,
+    drift_weights,
+    run_target_weight_backtest,
 )
 
 
@@ -305,3 +307,103 @@ def test_summarise_backtest_subperiods():
     )
 
     assert set(result["period"]) == {"first", "second"}
+
+
+def make_target_weight_backtest_inputs() -> tuple[pd.DataFrame, pd.DataFrame]:
+    dates = pd.bdate_range("2024-01-01", periods=3)
+
+    return_panel = pd.DataFrame(
+        {
+            "date": [
+                dates[0],
+                dates[0],
+                dates[1],
+                dates[1],
+                dates[2],
+                dates[2],
+            ],
+            "ticker": ["AAA", "BBB"] * 3,
+            "forward_ret_1d": [
+                0.10,
+                0.00,
+                0.00,
+                0.00,
+                0.00,
+                0.00,
+            ],
+        }
+    )
+
+    target_weights = pd.DataFrame(
+        {
+            "date": [
+                dates[0],
+                dates[0],
+                dates[2],
+                dates[2],
+            ],
+            "ticker": ["AAA", "BBB", "AAA", "BBB"],
+            "weight": [0.5, -0.5, 0.5, -0.5],
+        }
+    )
+
+    return return_panel, target_weights
+
+
+def test_drift_weights_accounts_for_asset_returns():
+    weights = pd.Series({"AAA": 0.5, "BBB": -0.5})
+    asset_returns = pd.Series({"AAA": 0.10, "BBB": 0.00})
+
+    result = drift_weights(weights, asset_returns)
+
+    # Portfolio return is 5%, so all ending positions are divided by 1.05.
+    assert result["AAA"] == pytest.approx(0.5 * 1.10 / 1.05)
+    assert result["BBB"] == pytest.approx(-0.5 / 1.05)
+
+
+def test_target_weight_backtest_drifts_between_rebalances():
+    return_panel, target_weights = make_target_weight_backtest_inputs()
+
+    daily, holdings = run_target_weight_backtest(
+        return_panel=return_panel,
+        target_weights=target_weights,
+        transaction_cost_bps=0.0,
+    )
+
+    dates = daily["date"].tolist()
+
+    first_day = daily.loc[daily["date"] == dates[0]].iloc[0]
+    second_day = daily.loc[daily["date"] == dates[1]].iloc[0]
+    third_day = daily.loc[daily["date"] == dates[2]].iloc[0]
+
+    assert first_day["gross_return"] == pytest.approx(0.05)
+    assert first_day["turnover"] == pytest.approx(1.0)
+
+    second_day_holdings = holdings.loc[holdings["date"] == dates[1]].set_index("ticker")
+
+    assert second_day_holdings.loc["AAA", "weight"] == pytest.approx(0.5 * 1.10 / 1.05)
+    assert second_day_holdings.loc["BBB", "weight"] == pytest.approx(-0.5 / 1.05)
+
+    assert second_day["turnover"] == pytest.approx(0.0)
+
+    expected_rebalance_turnover = abs(0.5 - 0.5 * 1.10 / 1.05) + abs(
+        -0.5 - (-0.5 / 1.05)
+    )
+
+    assert third_day["turnover"] == pytest.approx(expected_rebalance_turnover)
+
+
+def test_target_weight_backtest_deducts_linear_costs():
+    return_panel, target_weights = make_target_weight_backtest_inputs()
+
+    daily, _ = run_target_weight_backtest(
+        return_panel=return_panel,
+        target_weights=target_weights,
+        transaction_cost_bps=10.0,
+    )
+
+    first_day = daily.iloc[0]
+
+    assert first_day["turnover"] == pytest.approx(1.0)
+    assert first_day["transaction_cost"] == pytest.approx(0.001)
+    assert first_day["net_return"] == pytest.approx(first_day["gross_return"] - 0.001)

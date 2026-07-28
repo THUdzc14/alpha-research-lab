@@ -182,6 +182,262 @@ def calculate_turnover(
     return float((target - previous).abs().sum())
 
 
+def drift_weights(
+    weights: pd.Series,
+    asset_returns: pd.Series,
+) -> pd.Series:
+    """Drift portfolio weights through one return period.
+
+    Weights are expressed relative to portfolio NAV. Any residual capital is
+    treated as zero-return cash:
+
+        cash weight = 1 - sum(asset weights)
+
+    Missing asset returns must be handled by the caller before this function
+    is used.
+    """
+    tickers = weights.index.union(asset_returns.index)
+
+    aligned_weights = weights.reindex(tickers, fill_value=0.0).astype(float)
+    aligned_returns = asset_returns.reindex(tickers, fill_value=0.0).astype(float)
+
+    portfolio_return = float((aligned_weights * aligned_returns).sum())
+    ending_nav = 1.0 + portfolio_return
+
+    if ending_nav <= 0:
+        raise ValueError(
+            "Portfolio NAV became non-positive; weights cannot be drifted."
+        )
+
+    return aligned_weights * (1.0 + aligned_returns) / ending_nav
+
+
+def run_target_weight_backtest(
+    return_panel: pd.DataFrame,
+    target_weights: pd.DataFrame,
+    return_column: str = "forward_ret_1d",
+    transaction_cost_bps: float = 10.0,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Backtest dated target weights with drift-aware turnover.
+
+    Parameters
+    ----------
+    return_panel
+        Long-form DataFrame containing ``date``, ``ticker`` and the return
+        column. A weight dated t earns the return stored on date t.
+    target_weights
+        Long-form DataFrame containing ``date``, ``ticker`` and ``weight``.
+        Dates present in this table are treated as rebalance dates. Tickers
+        omitted on a rebalance date receive a target weight of zero.
+    return_column
+        One-period asset return earned after portfolio formation.
+    transaction_cost_bps
+        Linear transaction cost applied to total traded notional.
+
+    Notes
+    -----
+    Before each rebalance, turnover is measured against weights drifted by
+    all returns since the previous rebalance. Missing asset returns are
+    treated as zero and reported through ``missing_return_weight``.
+
+    Transaction costs are deducted from daily returns but are not included
+    in the subsequent weight-drift denominator. This keeps the accounting
+    transparent and is adequate for the current linear-cost benchmark.
+    """
+    if transaction_cost_bps < 0:
+        raise ValueError("transaction_cost_bps must be non-negative.")
+
+    required_return_columns = {"date", "ticker", return_column}
+    missing_return_columns = required_return_columns - set(return_panel.columns)
+
+    if missing_return_columns:
+        raise ValueError(
+            f"Missing return-panel columns: {sorted(missing_return_columns)}"
+        )
+
+    required_weight_columns = {"date", "ticker", "weight"}
+    missing_weight_columns = required_weight_columns - set(target_weights.columns)
+
+    if missing_weight_columns:
+        raise ValueError(
+            f"Missing target-weight columns: {sorted(missing_weight_columns)}"
+        )
+
+    returns = return_panel[["date", "ticker", return_column]].copy()
+    targets = target_weights[["date", "ticker", "weight"]].copy()
+
+    returns["date"] = pd.to_datetime(returns["date"])
+    targets["date"] = pd.to_datetime(targets["date"])
+
+    returns["ticker"] = returns["ticker"].astype(str)
+    targets["ticker"] = targets["ticker"].astype(str)
+    targets["weight"] = pd.to_numeric(targets["weight"], errors="coerce")
+
+    if returns[["date", "ticker"]].duplicated().any():
+        raise ValueError("Duplicate date/ticker rows found in return_panel.")
+
+    if targets[["date", "ticker"]].duplicated().any():
+        raise ValueError("Duplicate date/ticker rows found in target_weights.")
+
+    if targets.empty:
+        raise ValueError("target_weights is empty.")
+
+    if targets["weight"].isna().any():
+        raise ValueError("target_weights contains missing or non-numeric weights.")
+
+    if not np.isfinite(targets["weight"]).all():
+        raise ValueError("target_weights contains non-finite weights.")
+
+    returns = returns.sort_values(["date", "ticker"]).reset_index(drop=True)
+    targets = targets.sort_values(["date", "ticker"]).reset_index(drop=True)
+
+    valid_return_dates = returns.groupby("date")[return_column].apply(
+        lambda values: values.notna().any()
+    )
+    valid_return_dates = pd.DatetimeIndex(valid_return_dates[valid_return_dates].index)
+
+    returns = returns.loc[returns["date"].isin(valid_return_dates)].copy()
+    all_dates = pd.DatetimeIndex(returns["date"].unique()).sort_values()
+
+    invalid_target_dates = pd.DatetimeIndex(targets["date"].unique()).difference(
+        all_dates
+    )
+
+    if not invalid_target_dates.empty:
+        invalid_dates = invalid_target_dates.strftime("%Y-%m-%d").tolist()
+        raise ValueError(
+            "Target-weight dates are absent from the usable return panel: "
+            f"{invalid_dates}"
+        )
+
+    targets_by_date = {
+        date: group.set_index("ticker")["weight"].astype(float)
+        for date, group in targets.groupby("date", sort=True)
+    }
+    rebalance_dates = set(targets_by_date)
+
+    current_weights = pd.Series(dtype="float64")
+
+    daily_rows: list[dict[str, object]] = []
+    holdings_rows: list[pd.DataFrame] = []
+
+    for date in all_dates:
+        cross_section = returns.loc[returns["date"] == date]
+        return_by_ticker = cross_section.set_index("ticker")[return_column]
+
+        pre_trade_weights = current_weights.copy()
+        is_rebalance = date in rebalance_dates
+
+        if is_rebalance:
+            raw_target = targets_by_date[date]
+
+            traded_tickers = pre_trade_weights.index.union(raw_target.index)
+
+            applied_weights = raw_target.reindex(
+                traded_tickers,
+                fill_value=0.0,
+            )
+
+            aligned_pre_trade = pre_trade_weights.reindex(
+                traded_tickers,
+                fill_value=0.0,
+            )
+
+            trades = applied_weights - aligned_pre_trade
+            turnover = float(trades.abs().sum())
+        else:
+            applied_weights = pre_trade_weights.copy()
+            trades = pd.Series(
+                0.0,
+                index=applied_weights.index,
+                dtype="float64",
+            )
+            turnover = 0.0
+
+        aligned_returns = return_by_ticker.reindex(applied_weights.index)
+
+        missing_return_weight = float(
+            applied_weights.loc[aligned_returns.isna()].abs().sum()
+        )
+
+        realised_returns = aligned_returns.fillna(0.0)
+
+        long_weights = applied_weights.clip(lower=0.0)
+        short_weights = applied_weights.clip(upper=0.0)
+
+        long_return = float((long_weights * realised_returns).sum())
+        short_return = float((short_weights * realised_returns).sum())
+        gross_return = long_return + short_return
+
+        transaction_cost = turnover * transaction_cost_bps / 10_000.0
+        net_return = gross_return - transaction_cost
+
+        long_exposure = float(long_weights.sum())
+        short_exposure = float(-short_weights.sum())
+
+        daily_rows.append(
+            {
+                "date": date,
+                "is_rebalance": is_rebalance,
+                "long_return": long_return,
+                "short_return": short_return,
+                "gross_return": gross_return,
+                "turnover": turnover,
+                "transaction_cost": transaction_cost,
+                "net_return": net_return,
+                "long_exposure": long_exposure,
+                "short_exposure": short_exposure,
+                "net_exposure": long_exposure - short_exposure,
+                "gross_exposure": long_exposure + short_exposure,
+                "missing_return_weight": missing_return_weight,
+            }
+        )
+
+        holding_tickers = return_by_ticker.index.union(pre_trade_weights.index).union(
+            applied_weights.index
+        )
+
+        date_holdings = pd.DataFrame(
+            {
+                "date": date,
+                "ticker": holding_tickers,
+                "pre_trade_weight": pre_trade_weights.reindex(
+                    holding_tickers,
+                    fill_value=0.0,
+                ).to_numpy(),
+                "weight": applied_weights.reindex(
+                    holding_tickers,
+                    fill_value=0.0,
+                ).to_numpy(),
+                "trade": trades.reindex(
+                    holding_tickers,
+                    fill_value=0.0,
+                ).to_numpy(),
+            }
+        )
+
+        holdings_rows.append(date_holdings)
+
+        current_weights = drift_weights(
+            weights=applied_weights,
+            asset_returns=realised_returns,
+        )
+
+    daily_results = pd.DataFrame(daily_rows)
+
+    daily_results["gross_cumulative_return"] = (
+        1.0 + daily_results["gross_return"]
+    ).cumprod()
+
+    daily_results["net_cumulative_return"] = (
+        1.0 + daily_results["net_return"]
+    ).cumprod()
+
+    holdings = pd.concat(holdings_rows, ignore_index=True)
+
+    return daily_results, holdings
+
+
 def run_long_short_backtest(
     panel: pd.DataFrame,
     factor_column: str,
