@@ -3,7 +3,12 @@ import pandas as pd
 import pytest
 
 from alpha_research.backtest import BacktestConfig
-from alpha_research.portfolio import build_factor_target_weights
+from alpha_research.portfolio import (
+    build_factor_target_weights,
+    combine_sleeve_target_weights,
+    combine_factor_scores,
+    rescale_target_weights_to_gross,
+)
 
 
 def make_portfolio_panel() -> pd.DataFrame:
@@ -126,3 +131,269 @@ def test_factor_targets_are_zero_when_coverage_is_insufficient():
     ]
 
     assert np.all(first_targets == 0.0)
+
+
+def make_sleeve_targets() -> tuple[pd.DataFrame, pd.DataFrame]:
+    dates = pd.bdate_range("2024-01-01", periods=2)
+
+    momentum = pd.DataFrame(
+        {
+            "date": [dates[0]] * 4 + [dates[1]] * 4,
+            "ticker": ["A", "B", "C", "D"] * 2,
+            "weight": [0.5, 0.5, -0.5, -0.5] * 2,
+        }
+    )
+
+    volatility = pd.DataFrame(
+        {
+            "date": [dates[0]] * 4 + [dates[1]] * 4,
+            "ticker": ["A", "B", "C", "D"] * 2,
+            "weight": [-0.5, 0.5, 0.5, -0.5] * 2,
+        }
+    )
+
+    return momentum, volatility
+
+
+def test_combine_sleeves_applies_allocations_and_nets_positions():
+    momentum, volatility = make_sleeve_targets()
+
+    combined = combine_sleeve_target_weights(
+        sleeve_targets={
+            "momentum": momentum,
+            "volatility": volatility,
+        },
+        sleeve_allocations={
+            "momentum": 0.5,
+            "volatility": 0.5,
+        },
+    )
+
+    first_date = combined["date"].min()
+    weights = combined.loc[combined["date"] == first_date].set_index("ticker")["weight"]
+
+    assert weights["A"] == pytest.approx(0.0)
+    assert weights["B"] == pytest.approx(0.5)
+    assert weights["C"] == pytest.approx(0.0)
+    assert weights["D"] == pytest.approx(-0.5)
+
+
+def test_combine_sleeves_preserves_dollar_neutrality():
+    momentum, volatility = make_sleeve_targets()
+
+    combined = combine_sleeve_target_weights(
+        sleeve_targets={
+            "momentum": momentum,
+            "volatility": volatility,
+        },
+        sleeve_allocations={
+            "momentum": 0.5,
+            "volatility": 0.5,
+        },
+    )
+
+    net_exposure = combined.groupby("date")["weight"].sum()
+
+    assert np.allclose(net_exposure, 0.0)
+
+
+def test_combine_sleeves_requires_allocations_to_sum_to_one():
+    momentum, volatility = make_sleeve_targets()
+
+    with pytest.raises(ValueError, match="sum to one"):
+        combine_sleeve_target_weights(
+            sleeve_targets={
+                "momentum": momentum,
+                "volatility": volatility,
+            },
+            sleeve_allocations={
+                "momentum": 0.6,
+                "volatility": 0.6,
+            },
+        )
+
+
+def test_combine_sleeves_requires_matching_rebalance_dates():
+    momentum, volatility = make_sleeve_targets()
+
+    volatility = volatility.loc[volatility["date"] != volatility["date"].max()]
+
+    with pytest.raises(ValueError, match="identical rebalance dates"):
+        combine_sleeve_target_weights(
+            sleeve_targets={
+                "momentum": momentum,
+                "volatility": volatility,
+            },
+            sleeve_allocations={
+                "momentum": 0.5,
+                "volatility": 0.5,
+            },
+        )
+
+
+def test_combine_factor_scores_calculates_weighted_score():
+    panel = pd.DataFrame(
+        {
+            "momentum": [1.0, -1.0, 0.5],
+            "volatility": [0.0, 2.0, -0.5],
+        }
+    )
+
+    result = combine_factor_scores(
+        panel=panel,
+        factor_weights={
+            "momentum": 0.5,
+            "volatility": 0.5,
+        },
+    )
+
+    expected = pd.Series(
+        [0.5, 0.5, 0.0],
+        name="composite_factor_score",
+    )
+
+    pd.testing.assert_series_equal(result, expected)
+
+
+def test_combine_factor_scores_requires_all_components():
+    panel = pd.DataFrame(
+        {
+            "momentum": [1.0, np.nan],
+            "volatility": [2.0, 3.0],
+        }
+    )
+
+    result = combine_factor_scores(
+        panel=panel,
+        factor_weights={
+            "momentum": 0.5,
+            "volatility": 0.5,
+        },
+    )
+
+    assert result.iloc[0] == pytest.approx(1.5)
+    assert np.isnan(result.iloc[1])
+
+
+def test_combine_factor_scores_requires_weights_to_sum_to_one():
+    panel = pd.DataFrame(
+        {
+            "momentum": [1.0],
+            "volatility": [2.0],
+        }
+    )
+
+    with pytest.raises(ValueError, match="sum to one"):
+        combine_factor_scores(
+            panel=panel,
+            factor_weights={
+                "momentum": 0.7,
+                "volatility": 0.7,
+            },
+        )
+
+
+def test_rescale_target_weights_reaches_requested_gross():
+    dates = pd.bdate_range("2024-01-01", periods=2)
+
+    targets = pd.DataFrame(
+        {
+            "date": [dates[0]] * 4 + [dates[1]] * 4,
+            "ticker": ["A", "B", "C", "D"] * 2,
+            "weight": [
+                0.30,
+                0.20,
+                -0.25,
+                -0.25,
+                0.20,
+                0.30,
+                -0.30,
+                -0.20,
+            ],
+        }
+    )
+
+    result = rescale_target_weights_to_gross(
+        target_weights=targets,
+        target_gross=2.0,
+    )
+
+    gross_exposure = result.groupby("date")["weight"].agg(
+        lambda weights: weights.abs().sum()
+    )
+
+    assert np.allclose(gross_exposure, 2.0)
+
+
+def test_rescale_target_weights_preserves_dollar_neutrality():
+    date = pd.Timestamp("2024-01-01")
+
+    targets = pd.DataFrame(
+        {
+            "date": [date] * 4,
+            "ticker": ["A", "B", "C", "D"],
+            "weight": [0.30, 0.20, -0.25, -0.25],
+        }
+    )
+
+    result = rescale_target_weights_to_gross(
+        target_weights=targets,
+        target_gross=2.0,
+    )
+
+    assert result["weight"].sum() == pytest.approx(0.0)
+
+
+def test_rescale_target_weights_accepts_date_specific_gross():
+    dates = pd.bdate_range("2024-01-01", periods=2)
+
+    targets = pd.DataFrame(
+        {
+            "date": [dates[0]] * 2 + [dates[1]] * 2,
+            "ticker": ["A", "B"] * 2,
+            "weight": [0.5, -0.5, 0.5, -0.5],
+        }
+    )
+
+    gross_schedule = pd.Series(
+        [2.0, 0.0],
+        index=dates,
+    )
+
+    result = rescale_target_weights_to_gross(
+        target_weights=targets,
+        target_gross=gross_schedule,
+    )
+
+    gross_exposure = result.groupby("date")["weight"].agg(
+        lambda weights: weights.abs().sum()
+    )
+
+    assert gross_exposure.loc[dates[0]] == pytest.approx(2.0)
+    assert gross_exposure.loc[dates[1]] == pytest.approx(0.0)
+
+
+def test_rescale_target_weights_rejects_impossible_scaling():
+    date = pd.Timestamp("2024-01-01")
+
+    targets = pd.DataFrame(
+        {
+            "date": [date, date],
+            "ticker": ["A", "B"],
+            "weight": [0.0, 0.0],
+        }
+    )
+
+    gross_schedule = pd.Series(
+        [2.0],
+        index=[date],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="zero-weight portfolio",
+    ):
+        rescale_target_weights_to_gross(
+            target_weights=targets,
+            target_gross=gross_schedule,
+        )
