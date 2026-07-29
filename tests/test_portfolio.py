@@ -8,6 +8,9 @@ from alpha_research.portfolio import (
     combine_sleeve_target_weights,
     combine_factor_scores,
     rescale_target_weights_to_gross,
+    estimate_trailing_sleeve_volatility,
+    calculate_inverse_volatility_allocations,
+    combine_dynamic_sleeve_target_weights,
 )
 
 
@@ -397,3 +400,128 @@ def test_rescale_target_weights_rejects_impossible_scaling():
             target_weights=targets,
             target_gross=gross_schedule,
         )
+
+
+def test_trailing_volatility_uses_only_prior_returns():
+    dates = pd.bdate_range("2024-01-01", periods=5)
+
+    sleeve_returns = pd.DataFrame(
+        {
+            "A": [0.01, -0.01, 0.02, 0.50, 0.01],
+            "B": [0.02, -0.02, 0.04, 0.01, 0.02],
+        },
+        index=dates,
+    )
+
+    result = estimate_trailing_sleeve_volatility(
+        sleeve_returns=sleeve_returns,
+        lookback=3,
+        min_periods=3,
+        periods_per_year=1,
+    )
+
+    expected_a = sleeve_returns["A"].iloc[:3].std(ddof=1)
+    expected_b = sleeve_returns["B"].iloc[:3].std(ddof=1)
+
+    assert np.isnan(result.loc[dates[2], "A"])
+    assert result.loc[dates[3], "A"] == pytest.approx(expected_a)
+    assert result.loc[dates[3], "B"] == pytest.approx(expected_b)
+
+
+def test_inverse_volatility_favours_lower_risk_sleeve():
+    date = pd.Timestamp("2024-01-01")
+
+    volatility = pd.DataFrame(
+        {
+            "Low Risk": [0.10],
+            "High Risk": [0.20],
+        },
+        index=[date],
+    )
+
+    result = calculate_inverse_volatility_allocations(
+        sleeve_volatility=volatility,
+        allocation_floor=0.0,
+    )
+
+    assert result.loc[date, "Low Risk"] == pytest.approx(2.0 / 3.0)
+    assert result.loc[date, "High Risk"] == pytest.approx(1.0 / 3.0)
+    assert result.loc[date].sum() == pytest.approx(1.0)
+
+
+def test_inverse_volatility_uses_equal_weight_during_warmup():
+    date = pd.Timestamp("2024-01-01")
+
+    volatility = pd.DataFrame(
+        {
+            "A": [np.nan],
+            "B": [np.nan],
+        },
+        index=[date],
+    )
+
+    result = calculate_inverse_volatility_allocations(
+        sleeve_volatility=volatility,
+        allocation_floor=0.20,
+    )
+
+    assert result.loc[date, "A"] == pytest.approx(0.5)
+    assert result.loc[date, "B"] == pytest.approx(0.5)
+
+
+def test_inverse_volatility_respects_allocation_floor():
+    date = pd.Timestamp("2024-01-01")
+
+    volatility = pd.DataFrame(
+        {
+            "Low Risk": [0.01],
+            "High Risk": [1.00],
+        },
+        index=[date],
+    )
+
+    result = calculate_inverse_volatility_allocations(
+        sleeve_volatility=volatility,
+        allocation_floor=0.20,
+    )
+
+    assert result.loc[date].min() >= 0.20
+    assert result.loc[date].max() <= 0.80
+    assert result.loc[date].sum() == pytest.approx(1.0)
+
+
+def test_combine_dynamic_sleeves_applies_date_allocations():
+    momentum, volatility = make_sleeve_targets()
+    dates = pd.DatetimeIndex(momentum["date"].unique()).sort_values()
+
+    allocations = pd.DataFrame(
+        {
+            "momentum": [0.75, 0.25],
+            "volatility": [0.25, 0.75],
+        },
+        index=dates,
+    )
+
+    result = combine_dynamic_sleeve_target_weights(
+        sleeve_targets={
+            "momentum": momentum,
+            "volatility": volatility,
+        },
+        sleeve_allocations=allocations,
+    )
+
+    first_weights = result.loc[result["date"] == dates[0]].set_index("ticker")["weight"]
+
+    second_weights = result.loc[result["date"] == dates[1]].set_index("ticker")[
+        "weight"
+    ]
+
+    assert first_weights["A"] == pytest.approx(0.25)
+    assert first_weights["B"] == pytest.approx(0.50)
+    assert first_weights["C"] == pytest.approx(-0.25)
+    assert first_weights["D"] == pytest.approx(-0.50)
+
+    assert second_weights["A"] == pytest.approx(-0.25)
+    assert second_weights["B"] == pytest.approx(0.50)
+    assert second_weights["C"] == pytest.approx(0.25)
+    assert second_weights["D"] == pytest.approx(-0.50)

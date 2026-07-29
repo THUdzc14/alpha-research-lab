@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import numpy as np
 import pandas as pd
 
 from alpha_research.backtest import (
@@ -338,3 +339,226 @@ def rescale_target_weights_to_gross(
     scaled["weight"] *= scaled["date"].map(scale_factors)
 
     return scaled.sort_values(["date", "ticker"]).reset_index(drop=True)
+
+
+def estimate_trailing_sleeve_volatility(
+    sleeve_returns: pd.DataFrame,
+    lookback: int = 63,
+    min_periods: int = 42,
+    periods_per_year: int = 252,
+) -> pd.DataFrame:
+    """Estimate trailing sleeve volatility without look-ahead bias.
+
+    The rolling estimate is shifted by one observation, so the volatility
+    assigned to date t uses returns available only through date t - 1.
+    """
+    if sleeve_returns.empty:
+        raise ValueError("sleeve_returns is empty.")
+
+    if not isinstance(sleeve_returns.index, pd.DatetimeIndex):
+        raise ValueError("sleeve_returns must have a DatetimeIndex.")
+
+    if sleeve_returns.index.duplicated().any():
+        raise ValueError("sleeve_returns contains duplicate dates.")
+
+    if lookback < 2:
+        raise ValueError("lookback must be at least 2.")
+
+    if min_periods < 2 or min_periods > lookback:
+        raise ValueError("min_periods must be between 2 and lookback.")
+
+    if periods_per_year <= 0:
+        raise ValueError("periods_per_year must be positive.")
+
+    returns = sleeve_returns.sort_index().apply(pd.to_numeric, errors="coerce")
+
+    if np.isinf(returns.to_numpy()).any():
+        raise ValueError("sleeve_returns contains infinite values.")
+
+    return (
+        returns.rolling(
+            window=lookback,
+            min_periods=min_periods,
+        )
+        .std(ddof=1)
+        .shift(1)
+        .mul(math.sqrt(periods_per_year))
+    )
+
+
+def calculate_inverse_volatility_allocations(
+    sleeve_volatility: pd.DataFrame,
+    allocation_floor: float = 0.20,
+    volatility_floor: float = 1e-8,
+) -> pd.DataFrame:
+    """Convert sleeve volatilities into bounded inverse-vol allocations.
+
+    Before valid volatility estimates exist for every sleeve, equal
+    allocations are used.
+
+    allocation_floor reserves a minimum allocation for every sleeve.
+    The remaining capital is distributed using inverse volatility.
+    """
+    if sleeve_volatility.empty:
+        raise ValueError("sleeve_volatility is empty.")
+
+    volatility = sleeve_volatility.apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
+
+    if np.isinf(volatility.to_numpy()).any():
+        raise ValueError("sleeve_volatility contains infinite values.")
+
+    if (volatility.dropna() < 0.0).any().any():
+        raise ValueError("Sleeve volatilities cannot be negative.")
+
+    sleeve_count = volatility.shape[1]
+
+    if sleeve_count < 2:
+        raise ValueError("At least two sleeves are required.")
+
+    if (
+        not math.isfinite(allocation_floor)
+        or allocation_floor < 0.0
+        or allocation_floor > 1.0 / sleeve_count
+    ):
+        raise ValueError(
+            "allocation_floor must be between zero and " "1 / number of sleeves."
+        )
+
+    if not math.isfinite(volatility_floor) or volatility_floor <= 0.0:
+        raise ValueError("volatility_floor must be finite and positive.")
+
+    equal_weight = 1.0 / sleeve_count
+
+    raw_allocations = pd.DataFrame(
+        equal_weight,
+        index=volatility.index,
+        columns=volatility.columns,
+        dtype=float,
+    )
+
+    valid_dates = volatility.notna().all(axis=1) & (volatility > volatility_floor).all(
+        axis=1
+    )
+
+    inverse_volatility = 1.0 / volatility.loc[valid_dates].clip(lower=volatility_floor)
+
+    raw_allocations.loc[valid_dates] = inverse_volatility.div(
+        inverse_volatility.sum(axis=1),
+        axis=0,
+    )
+
+    remaining_allocation = 1.0 - sleeve_count * allocation_floor
+
+    allocations = allocation_floor + remaining_allocation * raw_allocations
+
+    return allocations
+
+
+def combine_dynamic_sleeve_target_weights(
+    sleeve_targets: dict[str, pd.DataFrame],
+    sleeve_allocations: pd.DataFrame,
+) -> pd.DataFrame:
+    """Combine sleeve targets using date-specific allocations.
+
+    sleeve_allocations must have rebalance dates as its index and one
+    column for every sleeve. Allocations must sum to one on each date.
+    """
+    if not sleeve_targets:
+        raise ValueError("sleeve_targets is empty.")
+
+    allocations = sleeve_allocations.copy()
+
+    if not isinstance(allocations.index, pd.DatetimeIndex):
+        allocations.index = pd.to_datetime(allocations.index)
+
+    allocations = allocations.sort_index()
+
+    if allocations.index.duplicated().any():
+        raise ValueError("sleeve_allocations contains duplicate dates.")
+
+    if set(allocations.columns) != set(sleeve_targets):
+        raise ValueError("Allocation columns and sleeve target names " "must match.")
+
+    allocations = allocations.apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
+
+    if (
+        allocations.isna().any().any()
+        or not np.isfinite(allocations.to_numpy()).all()
+        or (allocations < 0.0).any().any()
+    ):
+        raise ValueError("Sleeve allocations must be finite and non-negative.")
+
+    if not np.allclose(
+        allocations.sum(axis=1),
+        1.0,
+        rtol=0.0,
+        atol=1e-12,
+    ):
+        raise ValueError("Sleeve allocations must sum to one on every date.")
+
+    weighted_frames = []
+    reference_dates: pd.DatetimeIndex | None = None
+
+    for sleeve_name, targets in sleeve_targets.items():
+        required_columns = {"date", "ticker", "weight"}
+        missing_columns = required_columns - set(targets.columns)
+
+        if missing_columns:
+            raise ValueError(
+                f"{sleeve_name} is missing columns: " f"{sorted(missing_columns)}"
+            )
+
+        frame = targets[["date", "ticker", "weight"]].copy()
+
+        frame["date"] = pd.to_datetime(frame["date"])
+        frame["ticker"] = frame["ticker"].astype(str)
+        frame["weight"] = pd.to_numeric(
+            frame["weight"],
+            errors="coerce",
+        )
+
+        if frame[["date", "ticker"]].duplicated().any():
+            raise ValueError(f"{sleeve_name} contains duplicate " "date/ticker rows.")
+
+        if (
+            frame["weight"].isna().any()
+            or not np.isfinite(frame["weight"].to_numpy()).all()
+        ):
+            raise ValueError(f"{sleeve_name} contains invalid weights.")
+
+        sleeve_dates = pd.DatetimeIndex(frame["date"].unique()).sort_values()
+
+        if reference_dates is None:
+            reference_dates = sleeve_dates
+        elif not sleeve_dates.equals(reference_dates):
+            raise ValueError("All sleeves must use identical rebalance dates.")
+
+        missing_allocation_dates = sleeve_dates.difference(allocations.index)
+
+        if not missing_allocation_dates.empty:
+            raise ValueError("sleeve_allocations is missing rebalance dates.")
+
+        frame["weight"] *= frame["date"].map(allocations[sleeve_name])
+
+        weighted_frames.append(frame)
+
+    assert reference_dates is not None
+
+    extra_allocation_dates = allocations.index.difference(reference_dates)
+
+    if not extra_allocation_dates.empty:
+        raise ValueError("sleeve_allocations contains unexpected dates.")
+
+    return (
+        pd.concat(weighted_frames, ignore_index=True)
+        .groupby(["date", "ticker"], as_index=False)["weight"]
+        .sum()
+        .sort_values(["date", "ticker"])
+        .reset_index(drop=True)
+    )
