@@ -1,86 +1,129 @@
 # Methodology and Research Assumptions
 
-## Universe
+## 1. Research scope
 
-The current research universe is based on the present-day S&P 100 constituents.
+The project studies systematic equity signals using daily data for 101 present-day S&P 100 securities.
 
-Historical price data is used from approximately 2015 onward, subject to each security’s available history.
+The factor panel covers approximately 2 January 2015 to 2 July 2026. The aligned sample used for the final portfolio comparison runs from 7 January 2016 to 1 July 2026.
 
-This creates survivorship bias because the universe is not reconstructed using historical index membership.
+SPY is used as:
 
-The current-universe approach is used as an initial research simplification and should not be interpreted as a production-quality point-in-time universe.
+- the market benchmark;
+- the explanatory return in beta estimation; and
+- the hedge instrument in diagnostic beta-neutralisation experiments.
+
+The final strategy comparison uses three frozen implementations:
+
+| Portfolio | Frequency | Offset | Cost assumption |
+|---|---:|---:|---:|
+| Composite Score | 21 trading days | 0 | 10 bps |
+| Fixed 50/50 Sleeves | 10 trading days | 0 | 10 bps |
+| Pure Inverse Volatility | 10 trading days | 0 | 10 bps |
 
 ---
 
-## Data conventions
+## 2. Universe
 
-### Adjusted prices
+The universe is based on present-day S&P 100 constituents rather than historical point-in-time membership.
 
-Adjusted close is used for return calculations because it accounts for stock splits and distributions.
+Historical prices are included subject to each security’s available history.
 
-### Dollar volume
+This design introduces survivorship and membership bias because:
 
-Dollar volume is calculated using:
+- future survivors are known when the historical universe is formed;
+- historical index additions and deletions are not reconstructed;
+- delisted securities are not represented fully; and
+- sector classifications are treated as historically constant.
 
-$$
-\text{close}\times\text{volume}
-$$
+The current-universe approach is a research simplification and should not be interpreted as a production-quality universe.
 
-Raw close is used because it corresponds more closely to the actual market price at which shares traded.
+---
 
-### Return alignment
+## 3. Data conventions
 
-Backward daily returns are used for historical factor estimation:
+### 3.1 Adjusted prices
+
+Adjusted close is used for return calculations because it incorporates stock splits and distributions.
+
+Backward daily returns are:
 
 $$
 r_{i,t}
 =
-\frac{P_{i,t}}{P_{i,t-1}}-1
+\frac{P_{i,t}}{P_{i,t-1}}-1.
 $$
 
-Forward returns are aligned with the factor date:
+### 3.2 Forward returns
+
+Forward returns are aligned with the signal date:
 
 $$
-r^{fwd}_{i,t}
+r^{fwd,h}_{i,t}
 =
-\frac{P_{i,t+1}}{P_{i,t}}-1
+\frac{P_{i,t+h}}{P_{i,t}}-1.
 $$
 
-A factor observed at the close of date (t) is therefore evaluated against the return from (t) to (t+1).
+A signal observed at the close of date $t$ is evaluated against returns beginning after that close.
 
-The same convention is used for SPY hedge returns.
+Forward-return horizons are used for signal validation. One-day returns are used for daily portfolio accounting.
+
+### 3.3 Dollar volume
+
+Dollar volume is calculated as:
+
+$$
+\text{Dollar Volume}_{i,t}
+=
+\text{Close}_{i,t}
+\times
+\text{Volume}_{i,t}.
+$$
+
+Raw close is used because it corresponds more directly to the price at which shares traded.
+
+Capacity calculations use lagged liquidity information so that same-day trading decisions do not use future volume.
+
+### 3.4 Missing returns
+
+Dates without any valid next-day return are excluded from portfolio evaluation.
+
+Missing-return weight is tracked explicitly at both portfolio and security level. A missing return is not silently replaced with a valid observed return.
 
 ---
 
-## Factor definitions
+## 4. Factor definitions
 
-### 12–1 month momentum
+### 4.1 12–1 month momentum
 
 $$
 \text{Momentum}^{12-1}_{i,t}
 =
-\frac{P_{i,t-21}}{P_{i,t-252}}-1
+\frac{P_{i,t-21}}{P_{i,t-252}}-1.
 $$
 
-### 3-month momentum
+The most recent month is excluded to reduce contamination from short-term reversal.
+
+### 4.2 Three-month momentum
 
 $$
 \text{Momentum}^{3m}_{i,t}
 =
-\frac{P_{i,t}}{P_{i,t-63}}-1
+\frac{P_{i,t}}{P_{i,t-63}}-1.
 $$
 
-### 1-month reversal
+### 4.3 One-month reversal
 
 $$
 \text{Reversal}^{1m}_{i,t}
 =
 -\left(
 \frac{P_{i,t}}{P_{i,t-21}}-1
-\right)
+\right).
 $$
 
-### Realised volatility
+### 4.4 Realised volatility
+
+The 63-day realised-volatility signal is:
 
 $$
 \text{Volatility}_{i,t}
@@ -89,52 +132,70 @@ $$
 \left(
 r_{i,t-62},\ldots,r_{i,t}
 \right)
-\sqrt{252}
+\sqrt{252}.
 $$
+
+The project tests realised volatility as a cross-sectional characteristic rather than assuming that it is automatically a low-volatility factor.
+
+### 4.5 Retained factors
+
+The final multi-factor portfolios retain:
+
+- 12–1 month momentum; and
+- 63-day realised volatility.
+
+Three-month momentum and one-month reversal are not retained because their portfolio evidence is insufficient.
+
+Additional experimental factors are accepted or rejected using the same validation framework. Rejected factors remain documented to reduce outcome selection.
 
 ---
 
-## Signal processing
+## 5. Signal processing
 
-### Winsorisation
+### 5.1 Winsorisation
 
 Raw factor values are clipped to cross-sectional lower and upper quantiles on each date.
 
-The current default is the 1st and 99th percentile.
+The default bounds are the 1st and 99th percentiles.
 
-### Cross-sectional z-score
+### 5.2 Cross-sectional standardisation
+
+For factor value $x_{i,t}$, the cross-sectional z-score is:
 
 $$
 z_{i,t}
 =
-\frac{x_{i,t}-\mu_t}{\sigma_t}
+\frac{x_{i,t}-\mu_t}{\sigma_t},
 $$
 
-where the mean and standard deviation are calculated across eligible stocks on date (t).
+where the mean and standard deviation are calculated across eligible securities on date $t$.
 
-### Sector-neutral z-score
+### 5.3 Percentile ranks
 
-Sector-neutral scores are calculated within each date-sector group:
+Percentile ranks provide a scale-free representation of each factor and are used in rank-based validation.
+
+### 5.4 Sector-neutral scores
+
+Diagnostic sector-neutral scores are calculated within each date-sector group:
 
 $$
 z^{sector}_{i,t}
 =
-\frac{
-x_{i,t}-\mu_{sector(i),t}
-}{
-\sigma_{sector(i),t}
-}
+\frac{x_{i,t}-\mu_{s(i),t}}
+{\sigma_{s(i),t}}.
 $$
 
 Groups with insufficient observations or zero dispersion receive missing scores.
 
+Sector-neutral scores reduce broad sector differences but do not guarantee exact sector-neutral portfolio weights.
+
 ---
 
-## Signal validation
+## 6. Signal validation
 
-### Information coefficient
+### 6.1 Information coefficient
 
-The information coefficient is the cross-sectional correlation between factor scores and forward returns:
+The information coefficient is the cross-sectional correlation between a factor and forward returns:
 
 $$
 IC_t
@@ -142,77 +203,162 @@ IC_t
 \operatorname{Corr}
 \left(
 x_{i,t},
-r^{fwd}_{i,t}
-\right)
+r^{fwd,h}_{i,t}
+\right).
 $$
 
-Spearman rank IC is used as the primary measure.
+Spearman rank IC is the primary measure because the portfolio construction is rank-based.
 
-### IC information ratio
+### 6.2 IC t-statistic
 
-$$
-ICIR
-=
-\frac{\overline{IC}}{\operatorname{Std}(IC)}
-$$
-
-The current value is not annualised.
-
-### IC t-statistic
-
-The simple statistic is:
+The simple IC t-statistic is:
 
 $$
 t
 =
 \frac{\overline{IC}}
-{s_{IC}/\sqrt{N}}
+{s_{IC}/\sqrt{N}}.
 $$
 
-This assumes independent observations. It should be interpreted cautiously when forward-return windows overlap or IC observations are serially correlated.
+This statistic assumes independent observations. It is interpreted cautiously when forward-return windows overlap or ICs are serially correlated.
 
-### Quantile analysis
+### 6.3 Quantile analysis
 
-Stocks are divided into factor quantiles independently on each date.
+Eligible securities are divided into cross-sectional quantiles on each signal date.
 
-The highest factor group is compared with the lowest factor group using equal-weight average forward returns.
+The analysis considers:
 
-Quantile results are initially treated as signal diagnostics rather than tradable wealth series when forward-return periods overlap.
+- average return by quantile;
+- top-minus-bottom spread;
+- monotonicity;
+- multiple forward horizons;
+- subperiod stability;
+- non-overlapping samples; and
+- rolling IC.
+
+Overlapping forward-return observations are treated as diagnostics rather than independent tradable returns.
+
+### 6.4 Signal monitoring
+
+The monitoring layer tracks:
+
+- cross-sectional coverage;
+- rolling mean rank IC;
+- raw-signal dispersion;
+- one-day and 21-day rank stability; and
+- rolling cross-factor rank correlation.
+
+Signal warnings are separated from structural data failures.
 
 ---
 
-## Portfolio construction
+## 7. Standalone portfolio construction
 
-The default portfolio:
+The baseline standalone factor portfolio:
 
-* rebalances every five trading days;
-* is long the highest factor quintile;
-* is short the lowest factor quintile;
-* applies equal weights within each leg;
-* has long gross exposure of 1;
-* has short gross exposure of 1.
+- divides eligible securities into five quantiles;
+- is long the highest factor quintile;
+- is short the lowest factor quintile;
+- uses equal weights within each leg;
+- targets long exposure of $+1$;
+- targets short exposure of $-1$; and
+- holds positions between scheduled rebalances.
 
-Therefore:
+Before cross-factor netting:
 
 $$
-\sum_i w_i^{long}=1,
+\sum_i w^{long}_{i,t}=1,
 \qquad
-\sum_i |w_i^{short}|=1
+\sum_i |w^{short}_{i,t}|=1.
 $$
 
-and the initial stock portfolio is approximately dollar neutral:
+The target portfolio is therefore approximately dollar-neutral:
 
 $$
-\sum_i w_i=0
+\sum_i w_{i,t}=0.
 $$
 
-Positions are held constant between rebalances.
+Dollar neutrality does not imply beta or sector neutrality.
 
 ---
 
-## Turnover and transaction costs
+## 8. Multi-factor portfolio construction
 
-Stock turnover is defined as:
+### 8.1 Composite Score
+
+The Composite Score averages the two processed factor z-scores:
+
+$$
+z^{composite}_{i,t}
+=
+0.5z^{momentum}_{i,t}
++
+0.5z^{volatility}_{i,t}.
+$$
+
+Securities are ranked once using the combined score. The highest quintile is held long and the lowest quintile short.
+
+Factor disagreement changes the final security ranking rather than cancelling two completed sleeve portfolios.
+
+### 8.2 Fixed 50/50 Sleeves
+
+Momentum and realised volatility are first constructed as independent long-short portfolios.
+
+Their target weights are then combined:
+
+$$
+w^{fixed}_{i,t}
+=
+0.5w^{momentum}_{i,t}
++
+0.5w^{volatility}_{i,t}.
+$$
+
+Opposing positions in the same security net at the combined portfolio level. Consequently, realised gross exposure may be below the sum of the standalone sleeve exposures.
+
+### 8.3 Pure Inverse Volatility
+
+The Pure Inverse Volatility portfolio uses trailing sleeve-return volatility:
+
+$$
+a_{k,t}
+=
+\frac{1/\widehat{\sigma}_{k,t}}
+{\sum_j 1/\widehat{\sigma}_{j,t}},
+$$
+
+where $\widehat{\sigma}_{k,t}$ is estimated using trailing, one-day-shifted sleeve returns.
+
+Combined security weights are:
+
+$$
+w^{inverse\ vol}_{i,t}
+=
+\sum_k a_{k,t}w^{k}_{i,t}.
+$$
+
+Equal sleeve allocations are used during the initial estimation warm-up.
+
+For two positive-weight sleeves, inverse-volatility allocation equalises component risk contributions under the covariance structure used in the experiment. It does not guarantee equal realised future risk.
+
+---
+
+## 9. Backtest accounting
+
+### 9.1 Rebalance schedule
+
+A strategy is defined by:
+
+- rebalance frequency $F$; and
+- rebalance offset $o \in \{0,\ldots,F-1\}$.
+
+Positions persist between rebalance dates.
+
+All valid offsets are evaluated during robustness analysis. Offset zero is used only for the final frozen implementation.
+
+### 9.2 Turnover
+
+Security-level turnover is:
 
 $$
 \text{Turnover}_t
@@ -221,128 +367,378 @@ $$
 \left|
 w^{target}_{i,t}
 -
-w^{previous}_{i,t}
-\right|
+w^{pre}_{i,t}
+\right|,
 $$
 
-The default stock transaction cost is 10 basis points per unit of traded notional.
+where $w^{pre}_{i,t}$ is the portfolio weight immediately before trading.
 
-Benchmark-hedge turnover is calculated separately, with a default cost of 1 basis point.
+Turnover is reported as:
 
-The cost model is simplified and does not currently include:
+- daily turnover;
+- rebalance-event turnover;
+- annualised turnover;
+- rolling turnover;
+- maximum single-day turnover; and
+- concentration among the largest turnover days.
 
-* bid-ask spread variation;
-* market impact;
-* liquidity-dependent costs;
-* borrow fees;
-* short-sale constraints.
+### 9.3 Transaction costs
+
+Transaction-cost drag is:
+
+$$
+\text{Cost}_t
+=
+\text{Turnover}_t
+\times
+\frac{c}{10{,}000},
+$$
+
+where $c$ is the assumed cost in basis points per unit of traded notional.
+
+The baseline assumption is 10 basis points.
+
+The sensitivity grid is:
+
+$$
+c \in \{0,5,10,20,50\}.
+$$
+
+Net return is:
+
+$$
+r^{net}_{p,t}
+=
+r^{gross}_{p,t}
+-
+\text{Cost}_t.
+$$
+
+The model is linear and does not fully represent spreads, market impact, borrow costs or execution timing.
 
 ---
 
-## Beta estimation and hedging
+## 10. Performance statistics
 
-Rolling stock beta is estimated using historical stock and SPY returns:
+For $N$ daily observations, annualised geometric return is:
 
 $$
-\widehat\beta_{i,t}
+R_{ann}
+=
+\left(
+\prod_{t=1}^{N}(1+r_t)
+\right)^{252/N}
+-1.
+$$
+
+Annualised volatility is:
+
+$$
+\sigma_{ann}
+=
+\operatorname{Std}(r_t)\sqrt{252}.
+$$
+
+The Sharpe ratio is:
+
+$$
+\text{Sharpe}
+=
+\frac{\overline{r}}
+{\operatorname{Std}(r)}
+\sqrt{252}.
+$$
+
+No risk-free-rate adjustment is applied.
+
+Drawdown is measured relative to the running wealth peak:
+
+$$
+D_t
+=
+\frac{W_t}{\max_{s\le t}W_s}-1.
+$$
+
+Maximum drawdown is the minimum value of $D_t$.
+
+---
+
+## 11. Portfolio optimisation
+
+### 11.1 Global minimum variance
+
+Walk-forward global minimum-variance allocation estimates the trailing sleeve covariance matrix and chooses non-negative sleeve weights that minimise predicted variance.
+
+The experiment tests whether covariance-based allocation improves on simple fixed or inverse-volatility methods.
+
+### 11.2 Maximum-Sharpe MVO
+
+Maximum-Sharpe MVO estimates both expected sleeve returns and covariance.
+
+Because expected-return estimates are particularly noisy, the research evaluates:
+
+- boundary-solution frequency;
+- estimated-versus-realised return-spread correlation;
+- sleeve-ranking hit rate;
+- realised MVO-minus-equal performance;
+- turnover; and
+- shrinkage toward equal weighting.
+
+The tested MVO estimator is rejected because its expected-return forecasts contain no reliable realised allocation information.
+
+This conclusion applies to the tested specification, not to every possible optimisation method.
+
+---
+
+## 12. Robustness framework
+
+### 12.1 Rebalance phases
+
+Every offset associated with a selected frequency is evaluated.
+
+Results are summarised using:
+
+- mean and median performance;
+- minimum and maximum performance;
+- worst drawdown;
+- offset ranges; and
+- worst-offset Sharpe ratios.
+
+Phase-averaged results remain separate from the offset-zero headline implementation.
+
+### 12.2 Subperiods
+
+The predefined subperiods are:
+
+- 2016–2018;
+- 2019–2022; and
+- 2023–present.
+
+The periods are fixed before the final assessment and are not selected to maximise contrast.
+
+### 12.3 Rolling stability
+
+Rolling 252-day Sharpe ratios are calculated by rebalance phase.
+
+The summary includes:
+
+- median phase-averaged Sharpe;
+- 10th percentile;
+- minimum and maximum;
+- fraction of positive phase-averaged windows; and
+- fraction of windows in which the worst offset remains positive.
+
+### 12.4 Capacity
+
+For a security trade with absolute target-weight change $|\Delta w_{i,t}|$, approximate portfolio capacity under participation limit $p$ is:
+
+$$
+\text{Capacity}_{i,t}
+=
+\frac{
+p \times \text{ADV}_{i,t}
+}{
+|\Delta w_{i,t}|
+}.
+$$
+
+ADV uses lagged historical dollar volume.
+
+The portfolio trade-event capacity is constrained by the least liquid required trade. Summaries include:
+
+- fifth-percentile capacity;
+- median capacity;
+- worst-phase capacity; and
+- worst historical capacity.
+
+Capacity assumes synchronous execution and is a scenario diagnostic rather than a capital recommendation.
+
+---
+
+## 13. Risk and attribution
+
+### 13.1 Holdings-implied beta
+
+Security beta is estimated using trailing stock and SPY returns:
+
+$$
+\widehat{\beta}_{i,t}
 =
 \frac{
 \operatorname{Cov}(r_i,r_m)
 }{
 \operatorname{Var}(r_m)
-}
+}.
 $$
 
-The current default uses a 126-day window with a minimum of 63 observations.
-
-The estimated stock-portfolio beta is:
+Portfolio beta is:
 
 $$
-\widehat\beta_{p,t}
+\widehat{\beta}_{p,t}
 =
-\sum_i w_{i,t}\widehat\beta_{i,t}
+\sum_i w_{i,t}\widehat{\beta}_{i,t}.
 $$
 
-The SPY hedge weight is:
+Long- and short-side beta contributions are retained separately.
 
-$$
-w_{\text{SPY},t}
-=
--\widehat\beta_{p,t}
-$$
+### 13.2 Realised beta
 
-The hedge is updated on portfolio rebalance dates and held between rebalances.
+Rolling realised beta is estimated by regressing or covariance-scaling realised portfolio returns against SPY.
 
-Beta neutrality is ex ante and approximate because estimated stock betas may differ from subsequently realised betas.
+Holdings-implied beta is the contemporaneous exposure estimate. Realised beta is backward-looking and may differ because of estimation error and changing holdings.
 
----
-
-## Sector exposure
+### 13.3 Sector exposure
 
 For each sector, the framework records:
 
-* long weight;
-* short weight;
-* net weight;
-* gross weight.
+- long exposure;
+- short exposure;
+- net exposure; and
+- gross exposure.
 
-Sector-neutral factor scores substantially reduce sector exposure but do not mathematically guarantee zero sector portfolio weights, because the final long and short quintiles are selected globally.
+The largest absolute sector net exposure is used as a directional-concentration diagnostic.
 
-Exact sector neutrality would require explicit portfolio constraints or sector-balanced selection.
+### 13.4 Contribution concentration
 
----
+Security and sector contributions are accumulated over trailing 63-day windows.
 
-## Performance statistics
+For non-negative contribution magnitudes $x_j$, shares are:
 
-The framework currently reports:
+$$
+s_j
+=
+\frac{x_j}{\sum_k x_k}.
+$$
 
-* total return;
-* annualised return;
-* annualised volatility;
-* Sharpe ratio;
-* maximum drawdown;
-* positive-day fraction;
-* average daily turnover;
-* average rebalance turnover;
-* total transaction costs.
+The effective contributor count is:
 
-No risk-free-rate adjustment is currently applied to the Sharpe ratio.
+$$
+N_{\mathrm{effective}}
+=
+\frac{1}{\sum_j s_j^2}.
+$$
 
----
+The same concentration concept is applied to:
 
-## Interpretation standards
+- position weights;
+- sectors;
+- absolute beta contributions;
+- security return contributions; and
+- sector return contributions.
 
-A factor is not considered promising based only on a positive full-sample IC or return.
-
-The research process considers:
-
-* sign and magnitude of IC;
-* quantile monotonicity;
-* horizon consistency;
-* subperiod stability;
-* non-overlapping observations;
-* rebalance-offset robustness;
-* long- and short-leg contributions;
-* turnover and transaction costs;
-* market beta;
-* sector concentration;
-* performance after neutralisation.
+A high position count can coexist with a low effective number of risk or return contributors.
 
 ---
 
-## Current limitations
+## 14. Monitoring framework
 
-The largest limitations are:
+Monitoring diagnostics are divided into four categories:
 
-1. current-constituent survivorship bias;
-2. no point-in-time industry classifications;
-3. no delisting returns;
-4. simplified transaction costs;
-5. no borrow-cost model;
-6. no market-impact model;
-7. in-sample factor selection;
-8. limited factor library;
-9. single-benchmark beta model;
-10. no walk-forward or live evaluation.
+1. signal health;
+2. market risk;
+3. concentration; and
+4. implementation.
 
-These should be addressed before treating the framework as production-ready or the results as investable evidence.
+Two kinds of controls are used.
+
+### 14.1 Structural controls
+
+Structural diagnostics identify conditions such as:
+
+- missing required inputs;
+- failed accounting reconciliation;
+- incomplete liquidity coverage;
+- invalid transaction-cost rates; or
+- missing-return exposure.
+
+These can produce a breach or unavailable status.
+
+### 14.2 Historically calibrated controls
+
+State diagnostics compare the latest value with its own historical distribution.
+
+The principal warning thresholds use:
+
+- the upper 10% historical tail for adverse high values; or
+- the lower 10% historical tail for adverse low values.
+
+A warning means that the current state is historically unusual. It does not automatically imply that the strategy definition should change.
+
+### 14.3 Status hierarchy
+
+The severity order is:
+
+```text
+PASS
+→ WARNING
+→ BREACH
+→ UNAVAILABLE
+```
+
+The overall entity status is the most severe applicable diagnostic status.
+
+---
+
+## 15. Final decision framework
+
+The final strategy decision uses a hierarchy rather than an optimised weighted score.
+
+### Eligibility gates
+
+A portfolio must have:
+
+- a frozen specification;
+- aligned and reconciled data;
+- acceptable liquidity coverage;
+- no active missing-return exposure;
+- passing implementation diagnostics; and
+- no unresolved structural breach.
+
+### Comparative evidence
+
+Eligible candidates are compared using:
+
+- net return and Sharpe ratio;
+- volatility and drawdown;
+- phase and cost robustness;
+- subperiod and rolling stability;
+- turnover and capacity;
+- beta and concentration;
+- transparency; and
+- complexity.
+
+The final hierarchy is:
+
+1. Composite Score — primary implementation;
+2. Pure Inverse Volatility — defensive alternative;
+3. Fixed 50/50 Sleeves — transparent benchmark.
+
+---
+
+## 16. Risk-control decision
+
+The completed strategies do not include explicit beta or sector constraints.
+
+The latest high-beta and concentrated state was already observed before the final decision. Adding constraints in response would create a new in-sample design cycle.
+
+Beta-targeted and sector-constrained variants are therefore deferred to a separately specified research extension. The current unconstrained strategy remains the reference against which any future controls must be compared.
+
+---
+
+## 17. Main limitations
+
+1. Present-day constituent survivorship bias.
+2. No point-in-time sector classifications.
+3. No complete delisting-return treatment.
+4. In-sample factor and portfolio selection.
+5. Material dependence on the post-2022 period.
+6. Linear transaction-cost assumptions.
+7. No complete borrow-fee, availability, recall or financing model.
+8. No nonlinear market-impact model.
+9. Capacity based on historical ADV and fixed participation limits.
+10. No explicit beta- or sector-neutrality constraints.
+11. Noisy backward-looking beta and covariance estimates.
+12. SPY is not exposure-matched to the candidate portfolios.
+13. No live, paper-trading or genuinely unseen forward validation.
+
+These limitations prevent the results from being interpreted as production-ready or investable evidence.

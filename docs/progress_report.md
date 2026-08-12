@@ -2,257 +2,440 @@
 
 ## Overview
 
-This project began as an attempt to build a complete systematic alpha-research workflow rather than a collection of isolated factor notebooks.
+The Alpha Research Lab was created to build a complete systematic-equity research workflow rather than a collection of isolated factor notebooks.
 
-The central aim has been to connect each research stage:
+The project now connects:
 
 ```text
 data quality
-→ factor definition
+→ factor construction
 → predictive validation
 → portfolio implementation
-→ risk attribution
+→ multi-factor allocation
+→ robustness and capacity
+→ attribution
+→ monitoring
+→ final strategy selection
 ```
 
-The project is still in development, but it has reached a useful intermediate milestone: an initial factor can now be traced from raw market data through to a cost-adjusted and exposure-controlled backtest.
+The core research phase is complete. The project has selected a primary historical specification, retained transparent benchmarks, documented rejected methods and exported reusable evidence for the next engineering stage.
 
 ---
 
-## Milestone 1: Data foundation
+## Milestone 1 — Data foundation
 
-The first milestone was the construction of a reliable equity panel.
+The first milestone created a validated daily equity panel for the present-day S&P 100 universe and SPY.
 
 The work included:
 
-* downloading the current S&P 100 universe;
-* retrieving daily stock and SPY data;
-* standardising prices and volumes;
-* constructing backward and forward returns;
-* joining sector and company metadata;
-* identifying incomplete stock histories;
-* checking missingness, gaps, extreme returns, and invalid prices.
+- downloading and standardising price and volume data;
+- calculating backward and forward returns;
+- joining security and sector metadata;
+- checking missing dates and incomplete histories;
+- detecting non-positive prices and extreme gaps;
+- aligning security and benchmark dates; and
+- preserving missing-return diagnostics.
 
-One early lesson was that data availability and universe membership are different concepts. A stock may have historical price data long before entering an index. Using present-day constituents historically therefore introduces survivorship bias even when the price panel appears complete.
+An early lesson was that data availability and historical index membership are different. A security can have a complete price history without having belonged to the index throughout that history.
 
-The current-universe approach was retained for the minimum viable framework, but the limitation is recorded explicitly.
-
----
-
-## Milestone 2: Factor construction
-
-The initial factor library was intentionally small and interpretable:
-
-* 12–1 month momentum;
-* 3-month momentum;
-* 1-month reversal;
-* realised volatility.
-
-Each factor was implemented as a separately testable function.
-
-The factor layer was kept distinct from signal processing. Raw factor values were then:
-
-* winsorised;
-* cross-sectionally standardised;
-* converted to percentile ranks.
-
-This separation made it easier to distinguish an economic definition from later portfolio-processing choices.
+The current-universe approach was retained as a research simplification, with survivorship bias documented explicitly.
 
 ---
 
-## Milestone 3: Signal validation
+## Milestone 2 — Factor construction and validation
 
-The first validation layer examined whether factor rankings predicted subsequent cross-sectional returns.
+The initial factor library contained:
 
-The analysis included:
+- 12–1 month momentum;
+- three-month momentum;
+- one-month reversal; and
+- 63-day realised volatility.
 
-* daily Pearson and Spearman IC;
-* average IC and IC variability;
-* positive-IC frequency;
-* quantile returns;
-* top-minus-bottom spreads;
-* horizon comparisons;
-* subperiod analysis;
-* non-overlapping samples;
-* rolling IC.
+Each economic definition was separated from subsequent signal processing.
 
-This stage produced an important lesson:
+Raw values were:
 
-> A statistically positive factor relationship does not automatically produce an attractive portfolio.
+- winsorised;
+- cross-sectionally standardised;
+- converted to percentile ranks; and
+- optionally standardised within sectors.
 
-The 12–1 momentum factor had a positive IC, but the portfolio result was weak because the bottom-ranked stocks were poor short candidates.
+Validation included:
 
-Realised volatility showed a clearer quantile relationship and translated more successfully into a long-short strategy.
+- Pearson and Spearman IC;
+- IC t-statistics;
+- positive-IC frequency;
+- quantile returns;
+- top-minus-bottom spreads;
+- multiple forward horizons;
+- non-overlapping samples;
+- subperiods; and
+- rolling IC.
 
----
+The two retained factors were:
 
-## Milestone 4: Portfolio backtesting
+| Factor | Mean 5-day rank IC | IC t-statistic |
+|---|---:|---:|
+| 12–1 month momentum | 0.0197 | 3.65 |
+| 63-day realised volatility | 0.0253 | 4.61 |
 
-The next milestone was a rebalance-based backtester.
+The main lesson was:
 
-The backtester introduced:
+> A statistically useful factor is not automatically a useful portfolio.
 
-* persistent holdings;
-* configurable rebalance frequency;
-* multiple rebalance offsets;
-* equal-weight long and short books;
-* daily P&L;
-* turnover;
-* transaction costs;
-* drawdowns;
-* leg decomposition;
-* subperiod reporting.
-
-A practical bug was identified during this stage: the final panel date had no next-day return. Treating this as a zero return created a full missing-return exposure. The backtester was corrected to remove dates without any valid forward return.
-
-This reinforced the importance of reporting diagnostics alongside headline performance.
+Momentum showed positive predictive ranking information, but its lowest-ranked securities were weak short candidates. Realised volatility translated more successfully into a symmetric long-short portfolio.
 
 ---
 
-## Milestone 5: Exposure diagnosis
+## Milestone 3 — Standalone backtesting and exposure diagnosis
 
-The raw realised-volatility strategy initially appeared strong, with an annualised return of approximately 15.8% and a Sharpe ratio of approximately 0.73.
+A rebalance-based backtester was implemented with:
 
-However, the long and short books revealed an asymmetric structure:
+- persistent holdings;
+- configurable frequencies and offsets;
+- equal-weight long and short books;
+- daily gross and net returns;
+- turnover and transaction costs;
+- drawdown calculations;
+- long- and short-side decomposition; and
+- missing-return accounting.
 
-* the long high-volatility book had high market beta;
-* the short low-volatility book had substantially lower opposing beta;
-* the combined portfolio retained a market beta of approximately 0.82.
+A bug involving the final panel date was identified during this stage. A missing next-day return had initially created an apparent full missing-return exposure. The affected terminal date was removed rather than interpreted as a valid zero return.
 
-The strategy also had large sector tilts, particularly:
+Exposure analysis showed that dollar neutrality did not produce beta neutrality.
 
-* long Information Technology;
-* short Consumer Staples;
-* short Health Care and Utilities.
+The raw realised-volatility portfolio combined:
 
-This was a central research lesson:
+- stock-selection information;
+- positive market beta;
+- a large long Technology exposure; and
+- short exposure to defensive sectors.
 
-> Dollar neutrality does not imply market or sector neutrality.
+Sector- and beta-neutral experiments were useful diagnostics, but beta hedging reduced returns materially.
 
-A portfolio can hold equal long and short capital while retaining substantial systematic risk.
+The lesson was:
 
----
-
-## Milestone 6: Neutralisation
-
-Two neutralisation mechanisms were added.
-
-### Sector-neutral scores
-
-Stocks were standardised within date-sector groups. This changed the question from:
-
-> Which stocks have the highest volatility across the full market?
-
-to:
-
-> Which stocks have the highest volatility relative to their sector peers?
-
-### Beta hedge
-
-Rolling stock betas were estimated using historical daily returns.
-
-At each rebalance, the stock portfolio’s expected beta was calculated and offset using a SPY position.
-
-The four resulting strategy variants were:
-
-* raw;
-* sector neutral;
-* beta neutral;
-* sector and beta neutral.
+> Neutralisation is an experiment that reveals return sources; it is not automatically an improvement.
 
 ---
 
-## Current results
+## Milestone 4 — Additional factor experiments
 
-| Strategy              | Ann. return | Ann. volatility | Sharpe | Max drawdown | Realised beta |
-| --------------------- | ----------: | --------------: | -----: | -----------: | ------------: |
-| Raw                   |       15.8% |           24.0% |   0.73 |       −45.3% |          0.82 |
-| Sector neutral        |       11.8% |           15.4% |   0.80 |       −27.7% |          0.48 |
-| Beta neutral          |        2.7% |           18.6% |   0.24 |       −38.1% |         −0.06 |
-| Sector + beta neutral |        3.6% |           12.5% |   0.34 |       −26.2% |         −0.06 |
+Several additional factors were investigated.
 
-The most practically promising variant so far is the sector-neutral realised-volatility strategy.
+### Idiosyncratic volatility
 
-It gives up some raw return but achieves:
+Idiosyncratic volatility showed positive signal evidence but was highly redundant with realised volatility. It was not retained as a distinct factor.
 
-* lower volatility;
-* a higher Sharpe ratio;
-* a substantially smaller drawdown;
-* much smaller sector imbalances.
+### Liquidity
 
-The fully neutralised result remains positive, suggesting that some stock-selection information survives, but its economic magnitude is modest.
+The tested liquidity specification had weak or negative recent evidence and was not retained.
+
+### Risk-adjusted momentum
+
+Risk-adjusted momentum did not improve sufficiently on the simpler momentum definition.
+
+### Low beta
+
+Low-beta and betting-against-beta-style experiments revealed unstable leverage and estimation sensitivity. They were not added to the final factor set.
+
+These negative results were retained as part of the research record rather than removed from the project narrative.
 
 ---
 
-## What has been learned
+## Milestone 5 — Multi-factor portfolio construction
 
-### 1. Research conclusions change as realism increases
+The retained momentum and realised-volatility factors were combined using several methods.
 
-The apparent strength of a factor can fall materially after:
+### Fixed 50/50 sleeves
 
-* implementing actual holding periods;
-* introducing transaction costs;
-* separating the long and short legs;
-* measuring market beta;
-* controlling sector exposure.
+Independent factor portfolios were allocated equal capital weights and netted at security level.
 
-This is not a failure of the research process. It is the purpose of the process.
+The method was simple and transparent. Factor disagreement reduced realised gross exposure and drawdown.
 
-### 2. Signal quality and portfolio quality are different
+### Composite Score
 
-Momentum showed predictive ranking information, but its short book did not work well.
+Processed factor scores were averaged before security selection.
 
-A useful signal may need a portfolio design that differs from a symmetric long-short construction.
+The method allowed factor disagreement to affect rankings rather than cancelling completed sleeve positions. It produced stronger returns and lower turnover, but also greater gross exposure and risk.
 
-### 3. Exposure attribution is essential
+### Dynamic and pure inverse-volatility sleeves
 
-The raw realised-volatility result combined:
+Trailing sleeve volatility was used to form risk-based allocations.
 
-* stock-selection information;
-* market exposure;
-* sector allocation.
+Pure inverse-volatility weighting produced the strongest defensive profile among the retained sleeve methods.
 
-Without attribution, these components could easily be mistaken for a single source of alpha.
+The portfolio-construction stage showed that:
 
-### 4. Neutralisation is an experiment, not automatically an improvement
+> A more sophisticated portfolio is not automatically a better portfolio.
 
-Sector neutralisation improved risk-adjusted performance.
+Simple allocation rules remained highly competitive.
 
-Beta neutralisation reduced return sharply.
+---
 
-Both were useful because they clarified where performance came from, even though only one improved the headline Sharpe ratio.
+## Milestone 6 — Portfolio optimisation
 
-### 5. Negative results are useful
+Walk-forward global minimum-variance and maximum-Sharpe MVO were tested.
 
-Three-month momentum and one-month reversal were not compelling in the current framework.
+### Global minimum variance
 
-Retaining these findings reduces the temptation to report only successful factors and provides useful comparisons for future work.
+GMV produced moderate sleeve weights and lower estimated variance, but did not establish a decisive improvement over simple risk-based allocations.
+
+### Maximum-Sharpe MVO
+
+The MVO expected-return estimates failed their predictive diagnostics:
+
+- 61.7% of solutions were boundary allocations;
+- estimated and realised return spreads were effectively uncorrelated;
+- the return-ranking hit rate was 48.3%;
+- realised MVO-minus-equal performance averaged −14.3 bps per allocation period; and
+- diagnostic annualised return was 4.7%, versus 13.5% for equal weighting.
+
+Increasing MVO intensity progressively reduced return and Sharpe ratio, increased turnover and deepened drawdowns.
+
+Maximum-Sharpe MVO was therefore rejected.
+
+---
+
+## Milestone 7 — Frequency, cost and capacity robustness
+
+The selected portfolio families were tested across:
+
+- daily, 5-day, 10-day and 21-day rebalancing;
+- every valid rebalance offset;
+- transaction costs of 0–50 basis points;
+- three predefined subperiods;
+- rolling 252-day windows;
+- turnover concentration; and
+- security-level ADV capacity.
+
+The final frequencies were:
+
+- Composite Score: 21 trading days;
+- Fixed 50/50 Sleeves: 10 trading days; and
+- Pure Inverse Volatility: 10 trading days.
+
+### Cost sensitivity
+
+Composite Score retained the highest return and Sharpe ratio at every tested cost.
+
+At 50 basis points, all selected candidates still produced positive phase-averaged returns.
+
+### Subperiod stability
+
+| Subperiod | Composite | Fixed 50/50 | Pure inverse volatility |
+|---|---:|---:|---:|
+| 2016–2018 | 7.65% | 3.59% | 3.05% |
+| 2019–2022 | 2.86% | 1.67% | 5.32% |
+| 2023–present | 41.45% | 28.56% | 26.02% |
+
+The full-sample result is materially influenced by the post-2022 period.
+
+### Capacity
+
+All selected portfolios had complete lagged ADV coverage.
+
+At a 1% participation limit, worst-phase fifth-percentile capacity ranged from approximately $24.8 million to $40.2 million.
+
+---
+
+## Milestone 8 — Performance and risk attribution
+
+The attribution notebook reconciled portfolio accounting and analysed:
+
+- gross and net performance;
+- factor sleeves;
+- long and short books;
+- transaction costs;
+- market exposure;
+- rolling risk;
+- drawdowns;
+- security contributions;
+- sector contributions; and
+- concentration.
+
+The analysis confirmed that current portfolio risk is not explained well by nominal position counts alone.
+
+Although the strategies hold many securities, beta and recent return contributions are concentrated among a much smaller group of names and sectors.
+
+The short baskets also provide limited beta offset, particularly for Composite Score.
+
+---
+
+## Milestone 9 — Monitoring and diagnostics
+
+A reusable monitoring framework was designed around four categories:
+
+1. signal health;
+2. market risk;
+3. concentration; and
+4. implementation.
+
+The framework distinguishes:
+
+- structural breaches;
+- unavailable diagnostics;
+- historically calibrated warnings; and
+- passing conditions.
+
+Both retained factors pass their latest signal-health checks.
+
+All implementations pass:
+
+- turnover diagnostics;
+- transaction-cost checks;
+- liquidity coverage;
+- capacity checks; and
+- missing-return controls.
+
+All three portfolios nevertheless receive market-risk and concentration warnings.
+
+As of 1 July 2026:
+
+| Portfolio | Holdings-implied beta | 126-day volatility | Largest sector imbalance |
+|---|---:|---:|---:|
+| Composite Score | 1.83 | 36.7% | 67.9% |
+| Fixed 50/50 Sleeves | 1.41 | 30.1% | 44.9% |
+| Pure Inverse Volatility | 1.41 | 30.2% | 44.9% |
+
+The warning cluster reflects:
+
+- elevated beta;
+- elevated volatility;
+- concentrated sector exposure;
+- concentrated beta contributions;
+- concentrated security contributions; and
+- a low effective number of contributing sectors.
+
+The strategy definitions were not changed in response because doing so would create a new in-sample optimisation cycle.
+
+---
+
+## Milestone 10 — Final strategy assessment
+
+All three frozen candidates passed their eligibility gates.
+
+### Final hierarchy
+
+1. **Composite Score — primary implementation**
+2. **Pure Inverse Volatility — defensive risk-based alternative**
+3. **Fixed 50/50 Sleeves — transparent allocation benchmark**
+
+### Final historical results
+
+| Portfolio | Net ann. return | Ann. volatility | Sharpe | Max drawdown |
+|---|---:|---:|---:|---:|
+| Composite Score | 16.13% | 21.17% | 0.813 | −29.24% |
+| Fixed 50/50 Sleeves | 10.84% | 16.77% | 0.698 | −25.68% |
+| Pure Inverse Volatility | 10.96% | 16.25% | 0.722 | −21.77% |
+| SPY context | 15.55% | 17.83% | 0.900 | −33.72% |
+
+Composite Score was selected because it combined:
+
+- the highest candidate return and Sharpe ratio;
+- strong rebalance-phase robustness;
+- the best transaction-cost resilience;
+- positive performance in every subperiod; and
+- the lowest average turnover.
+
+The decision remains qualified by:
+
+- higher beta and volatility;
+- greater sector concentration;
+- weaker rolling lower-tail stability than Pure Inverse Volatility; and
+- substantial dependence on the post-2022 period.
+
+---
+
+## Main research lessons
+
+### 1. Signal and portfolio quality are different
+
+Momentum contains predictive information, but its symmetric short side is weak.
+
+### 2. Dollar neutrality is not risk neutrality
+
+Equal long and short capital can retain substantial beta and sector exposure.
+
+### 3. Nominal diversification is not economic diversification
+
+Many holdings can still produce concentrated beta and return contributions.
+
+### 4. Rebalance frequency is an economic parameter
+
+Lower-frequency implementation substantially reduced turnover and improved net performance.
+
+### 5. Complexity requires evidence
+
+Maximum-Sharpe MVO added estimation error and turnover without improving realised results.
+
+### 6. Robustness is multidimensional
+
+A strategy can survive costs and rebalance phases while remaining dependent on market regimes.
+
+### 7. Monitoring should diagnose rather than optimise
+
+Current warnings inform interpretation. They do not justify changing a frozen strategy retrospectively.
+
+### 8. Negative results are valuable
+
+Rejected factors and allocation methods clarify which ideas do not add distinct value.
 
 ---
 
 ## Current interpretation
 
-The evidence currently supports the following statement:
+The completed research supports the following statement:
 
-> Realised volatility contains meaningful cross-sectional information in this universe, particularly within sectors, but its strongest raw performance is partly explained by market beta and sector tilts.
+> Momentum and realised volatility contain historically useful cross-sectional information in the studied universe, and a simple composite ranking produces the strongest tested implementation after costs and phase robustness.
 
-This is a more defensible conclusion than describing the raw backtest as standalone alpha.
+It also supports an equally important qualification:
+
+> The selected portfolio is not market-neutral, is currently concentrated in market and sector risk, and has benefited substantially from the post-2022 regime.
+
+The project has therefore identified a coherent historical research specification—not a proven production alpha strategy.
 
 ---
 
-## Next research stage
+## Current project status
 
-The next stage will expand the factor library with economically distinct signals:
+The research notebooks now provide:
 
-* liquidity or illiquidity;
-* rolling market beta;
-* idiosyncratic volatility;
-* risk-adjusted momentum.
+- reconciled data inputs;
+- validated factors;
+- standalone and multi-factor backtests;
+- optimisation diagnostics;
+- frequency, cost and capacity robustness;
+- performance and risk attribution;
+- monitoring flags;
+- a final strategy hierarchy;
+- limitations; and
+- an evidence-backed claims register.
 
-The main goal will not be to maximise the number of factors. It will be to determine whether complementary signals can improve:
+The core research stage is complete.
 
-* robustness across regimes;
-* portfolio diversification;
-* drawdown control;
-* exposure-adjusted performance.
+---
 
-The same validation and neutralisation workflow will be applied to each new signal.
+## Next engineering stage
+
+The next stage will convert notebook logic into reusable package components.
+
+Priority modules include:
+
+- `costs.py` for transaction-cost and turnover calculations;
+- `metrics.py` for return, risk and drawdown summaries;
+- `monitoring.py` for diagnostic calibration and status aggregation; and
+- `visualisation.py` for consistent dashboard-ready charts.
+
+The engineering sequence should be:
+
+1. inventory repeated notebook functions;
+2. define stable public APIs and schemas;
+3. extract one analytical layer at a time;
+4. add unit and reconciliation tests;
+5. rerun notebooks against the package functions;
+6. create a versioned data-access layer;
+7. build the Streamlit dashboard; and
+8. add dashboard documentation and screenshots.
+
+A forward or paper-trading workflow should follow without altering the completed historical strategy specification.
