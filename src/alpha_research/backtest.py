@@ -5,7 +5,12 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-TRADING_DAYS_PER_YEAR = 252
+from alpha_research.config.research import TRADING_DAYS_PER_YEAR
+from alpha_research.costs import calculate_linear_transaction_cost
+from alpha_research.metrics import (
+    calculate_drawdown_from_wealth,
+    summarise_returns,
+)
 
 
 @dataclass(frozen=True)
@@ -244,8 +249,10 @@ def run_target_weight_backtest(
     in the subsequent weight-drift denominator. This keeps the accounting
     transparent and is adequate for the current linear-cost benchmark.
     """
-    if transaction_cost_bps < 0:
-        raise ValueError("transaction_cost_bps must be non-negative.")
+    calculate_linear_transaction_cost(
+        turnover=0.0,
+        transaction_cost_bps=transaction_cost_bps,
+    )
 
     required_return_columns = {"date", "ticker", return_column}
     missing_return_columns = required_return_columns - set(return_panel.columns)
@@ -369,7 +376,12 @@ def run_target_weight_backtest(
         short_return = float((short_weights * realised_returns).sum())
         gross_return = long_return + short_return
 
-        transaction_cost = turnover * transaction_cost_bps / 10_000.0
+        transaction_cost = float(
+            calculate_linear_transaction_cost(
+                turnover=turnover,
+                transaction_cost_bps=transaction_cost_bps,
+            )
+        )
         net_return = gross_return - transaction_cost
 
         long_exposure = float(long_weights.sum())
@@ -642,10 +654,18 @@ def run_long_short_backtest(
 
         gross_return = gross_return_before_hedge + benchmark_hedge_return
 
-        stock_transaction_cost = stock_turnover * config.transaction_cost_bps / 10_000.0
+        stock_transaction_cost = float(
+            calculate_linear_transaction_cost(
+                turnover=stock_turnover,
+                transaction_cost_bps=config.transaction_cost_bps,
+            )
+        )
 
-        benchmark_transaction_cost = (
-            benchmark_turnover * config.benchmark_cost_bps / 10_000.0
+        benchmark_transaction_cost = float(
+            calculate_linear_transaction_cost(
+                turnover=benchmark_turnover,
+                transaction_cost_bps=config.benchmark_cost_bps,
+            )
         )
 
         transaction_cost = stock_transaction_cost + benchmark_transaction_cost
@@ -707,10 +727,8 @@ def run_long_short_backtest(
 def calculate_drawdown(
     cumulative_return: pd.Series,
 ) -> pd.Series:
-    """Calculate drawdown from a cumulative wealth series."""
-    running_max = cumulative_return.cummax()
-
-    return cumulative_return / running_max - 1.0
+    """Calculate drawdown from wealth, retaining the historical public API."""
+    return calculate_drawdown_from_wealth(cumulative_return)
 
 
 def summarise_backtest(
@@ -722,42 +740,26 @@ def summarise_backtest(
     if return_column not in daily_results.columns:
         raise ValueError(f"Column not found: {return_column}")
 
-    returns = daily_results[return_column].dropna()
-    observations = len(returns)
+    performance = summarise_returns(
+        daily_results[return_column],
+        periods_per_year=annualisation_factor,
+    )
 
-    if observations == 0:
+    if performance["observations"] == 0:
         raise ValueError("No valid returns available.")
-
-    total_return = (1.0 + returns).prod() - 1.0
-
-    annualised_return = (1.0 + total_return) ** (
-        annualisation_factor / observations
-    ) - 1.0
-
-    annualised_volatility = returns.std(ddof=1) * np.sqrt(annualisation_factor)
-
-    if annualised_volatility > 0:
-        sharpe_ratio = (
-            returns.mean() / returns.std(ddof=1) * np.sqrt(annualisation_factor)
-        )
-    else:
-        sharpe_ratio = np.nan
-
-    cumulative = (1.0 + returns).cumprod()
-    drawdown = calculate_drawdown(cumulative)
 
     rebalance_rows = daily_results.loc[daily_results["is_rebalance"]]
 
     return pd.DataFrame(
         [
             {
-                "observations": observations,
-                "total_return": total_return,
-                "annualised_return": annualised_return,
-                "annualised_volatility": annualised_volatility,
-                "sharpe_ratio": sharpe_ratio,
-                "max_drawdown": drawdown.min(),
-                "positive_day_fraction": (returns > 0).mean(),
+                "observations": performance["observations"],
+                "total_return": performance["total_return"],
+                "annualised_return": performance["annualised_return"],
+                "annualised_volatility": performance["annualised_volatility"],
+                "sharpe_ratio": performance["sharpe_ratio"],
+                "max_drawdown": performance["maximum_drawdown"],
+                "positive_day_fraction": performance["positive_day_fraction"],
                 "average_daily_turnover": daily_results["turnover"].mean(),
                 "average_rebalance_turnover": rebalance_rows["turnover"].mean(),
                 "total_transaction_cost": daily_results["transaction_cost"].sum(),
@@ -789,41 +791,23 @@ def summarise_backtest_legs(
         if return_column not in daily_results.columns:
             continue
 
-        returns = daily_results[return_column].dropna()
+        performance = summarise_returns(
+            daily_results[return_column],
+            periods_per_year=annualisation_factor,
+        )
 
-        observations = len(returns)
-
-        if observations == 0:
+        if performance["observations"] == 0:
             continue
-
-        total_return = (1.0 + returns).prod() - 1.0
-
-        annualised_return = (1.0 + total_return) ** (
-            annualisation_factor / observations
-        ) - 1.0
-
-        return_std = returns.std(ddof=1)
-
-        annualised_volatility = return_std * np.sqrt(annualisation_factor)
-
-        if return_std > 0:
-            sharpe_ratio = returns.mean() / return_std * np.sqrt(annualisation_factor)
-        else:
-            sharpe_ratio = np.nan
-
-        cumulative = (1.0 + returns).cumprod()
-
-        drawdown = calculate_drawdown(cumulative)
 
         rows.append(
             {
                 "portfolio": portfolio_name,
-                "total_return": total_return,
-                "annualised_return": (annualised_return),
-                "annualised_volatility": (annualised_volatility),
-                "sharpe_ratio": sharpe_ratio,
-                "max_drawdown": drawdown.min(),
-                "positive_day_fraction": (returns > 0).mean(),
+                "total_return": performance["total_return"],
+                "annualised_return": performance["annualised_return"],
+                "annualised_volatility": performance["annualised_volatility"],
+                "sharpe_ratio": performance["sharpe_ratio"],
+                "max_drawdown": performance["maximum_drawdown"],
+                "positive_day_fraction": performance["positive_day_fraction"],
             }
         )
 
