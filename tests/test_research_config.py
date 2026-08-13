@@ -148,3 +148,6 @@ def test_monitoring_windows_match_notebook_definitions():
     assert MONITORING_SPECIFICATION.capacity_adv_min_periods == 21
     assert MONITORING_SPECIFICATION.monitoring_liquidity_min_periods == 10
     assert MONITORING_SPECIFICATION.capacity_participation_rate == 0.01
+    assert MONITORING_SPECIFICATION.historical_lower_tail == 0.10
+    assert MONITORING_SPECIFICATION.historical_upper_tail == 0.90
+    assert MONITORING_SPECIFICATION.structural_coverage_tolerance == 1e-8

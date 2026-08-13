@@ -123,6 +123,9 @@ class MonitoringSpecification:
     monitoring_liquidity_window: int = 21
     monitoring_liquidity_min_periods: int = 10
     capacity_participation_rate: float = 0.01
+    historical_lower_tail: float = 0.10
+    historical_upper_tail: float = 0.90
+    structural_coverage_tolerance: float = 1e-8
     numerical_tolerance: float = DEFAULT_NUMERICAL_TOLERANCE
 
     def __post_init__(self) -> None:
@@ -165,6 +168,24 @@ class MonitoringSpecification:
 
         if not 0.0 < self.capacity_participation_rate <= 1.0:
             raise ValueError("capacity_participation_rate must be in (0, 1].")
+
+        if not (
+            math.isfinite(self.historical_lower_tail)
+            and math.isfinite(self.historical_upper_tail)
+            and 0.0 < self.historical_lower_tail < self.historical_upper_tail < 1.0
+        ):
+            raise ValueError(
+                "Historical tails must be finite and satisfy "
+                "0 < historical_lower_tail < historical_upper_tail < 1."
+            )
+
+        if (
+            not math.isfinite(self.structural_coverage_tolerance)
+            or self.structural_coverage_tolerance < 0.0
+        ):
+            raise ValueError(
+                "structural_coverage_tolerance must be finite and non-negative."
+            )
 
         if (
             not math.isfinite(self.numerical_tolerance)
