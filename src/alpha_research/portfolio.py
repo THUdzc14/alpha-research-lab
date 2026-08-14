@@ -386,6 +386,95 @@ def estimate_trailing_sleeve_volatility(
     )
 
 
+def calculate_rebalance_inverse_volatility_allocations(
+    sleeve_returns: pd.DataFrame,
+    rebalance_dates: pd.Index,
+    lookback: int = 63,
+    min_periods: int = 42,
+    periods_per_year: int = 252,
+) -> pd.DataFrame:
+    """Calculate pure inverse-volatility weights on rebalance dates.
+
+    Each allocation uses the latest jointly observed sleeve returns strictly
+    before its rebalance date.  Equal allocations are used until enough joint
+    history is available.  This is the exact convention retained from
+    Notebook 06.
+    """
+    if sleeve_returns.empty:
+        raise ValueError("sleeve_returns is empty.")
+
+    if not isinstance(sleeve_returns.index, pd.DatetimeIndex):
+        raise ValueError("sleeve_returns must have a DatetimeIndex.")
+
+    returns = sleeve_returns.sort_index().apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
+
+    if returns.index.duplicated().any():
+        raise ValueError("sleeve_returns contains duplicate dates.")
+
+    if np.isinf(returns.to_numpy()).any():
+        raise ValueError("sleeve_returns contains infinite values.")
+
+    if returns.shape[1] < 2:
+        raise ValueError("At least two sleeves are required.")
+
+    if lookback < 2:
+        raise ValueError("lookback must be at least 2.")
+
+    if min_periods < 2 or min_periods > lookback:
+        raise ValueError("min_periods must be between 2 and lookback.")
+
+    if periods_per_year <= 0:
+        raise ValueError("periods_per_year must be positive.")
+
+    dates = pd.DatetimeIndex(pd.to_datetime(pd.Series(rebalance_dates).dropna()))
+
+    if dates.empty:
+        raise ValueError("rebalance_dates is empty.")
+
+    if dates.duplicated().any():
+        raise ValueError("rebalance_dates contains duplicates.")
+
+    dates = dates.sort_values()
+    allocations = pd.DataFrame(
+        1.0 / returns.shape[1],
+        index=dates,
+        columns=returns.columns,
+        dtype=float,
+    )
+    allocations.index.name = "date"
+
+    for date in dates:
+        history = returns.loc[returns.index < date].dropna(how="any").tail(lookback)
+
+        if len(history) < min_periods:
+            continue
+
+        volatility = history.std(ddof=1) * math.sqrt(periods_per_year)
+
+        if (
+            volatility.isna().any()
+            or not np.isfinite(volatility.to_numpy()).all()
+            or volatility.le(0.0).any()
+        ):
+            continue
+
+        inverse_volatility = 1.0 / volatility
+        allocations.loc[date] = inverse_volatility / inverse_volatility.sum()
+
+    if not np.allclose(
+        allocations.sum(axis=1),
+        1.0,
+        rtol=0.0,
+        atol=1e-12,
+    ):
+        raise ValueError("Inverse-volatility allocations do not sum to one.")
+
+    return allocations
+
+
 def calculate_inverse_volatility_allocations(
     sleeve_volatility: pd.DataFrame,
     allocation_floor: float = 0.20,

@@ -8,8 +8,22 @@ from pathlib import Path
 
 import pandas as pd
 
-from alpha_research.monitoring import DIAGNOSTIC_FLAG_EXPORT_COLUMNS
-from alpha_research.workflows import MONITORING_DATASET_NAMES
+from alpha_research.attribution import (
+    SECURITY_ATTRIBUTION_EXPORT_COLUMNS,
+    reconcile_security_attribution,
+)
+from alpha_research.config.research import (
+    DEFAULT_NUMERICAL_TOLERANCE,
+    STRATEGY_SPECIFICATIONS,
+)
+from alpha_research.monitoring import (
+    DIAGNOSTIC_FLAG_EXPORT_COLUMNS,
+)
+from alpha_research.workflows import (
+    ATTRIBUTION_DATASET_NAMES,
+    MONITORING_DATASET_NAMES,
+    validate_frozen_implementations,
+)
 
 
 @dataclass(frozen=True)
@@ -147,6 +161,104 @@ MONITORING_ARTIFACT_CONTRACTS = {
     ),
 }
 
+ATTRIBUTION_ARTIFACT_CONTRACTS = {
+    "selected_implementations": ArtifactContract(
+        filename=("attribution_selected_implementations.parquet"),
+        key_columns=(
+            "portfolio",
+            "rebalance_frequency",
+            "rebalance_offset",
+        ),
+        required_columns=(
+            "portfolio",
+            "rebalance_frequency",
+            "rebalance_offset",
+            "role",
+        ),
+        date_column=None,
+    ),
+    "portfolio_daily": ArtifactContract(
+        filename="attribution_portfolio_daily.parquet",
+        key_columns=("portfolio", "date"),
+        required_columns=(
+            "date",
+            "is_rebalance",
+            "long_return",
+            "short_return",
+            "gross_return",
+            "turnover",
+            "transaction_cost",
+            "net_return",
+            "long_exposure",
+            "short_exposure",
+            "net_exposure",
+            "gross_exposure",
+            "missing_return_weight",
+            "gross_cumulative_return",
+            "net_cumulative_return",
+            "portfolio",
+            "rebalance_frequency",
+            "rebalance_offset",
+            "transaction_cost_bps",
+            "role",
+        ),
+    ),
+    "security_holdings": ArtifactContract(
+        filename=("attribution_security_holdings.parquet"),
+        key_columns=(
+            "portfolio",
+            "date",
+            "ticker",
+        ),
+        required_columns=(
+            "date",
+            "ticker",
+            "pre_trade_weight",
+            "weight",
+            "trade",
+            "portfolio",
+            "rebalance_frequency",
+            "rebalance_offset",
+            "role",
+        ),
+    ),
+    "target_weights": ArtifactContract(
+        filename="attribution_target_weights.parquet",
+        key_columns=(
+            "portfolio",
+            "date",
+            "ticker",
+        ),
+        required_columns=(
+            "date",
+            "ticker",
+            "weight",
+            "portfolio",
+            "rebalance_frequency",
+            "rebalance_offset",
+            "role",
+        ),
+    ),
+    "benchmark_daily": ArtifactContract(
+        filename="attribution_benchmark_daily.parquet",
+        key_columns=("benchmark", "date"),
+        required_columns=(
+            "date",
+            "benchmark",
+            "benchmark_return",
+        ),
+    ),
+    "security_daily": ArtifactContract(
+        filename="attribution_security_daily.parquet",
+        key_columns=(
+            "portfolio",
+            "date",
+            "ticker",
+        ),
+        required_columns=(SECURITY_ATTRIBUTION_EXPORT_COLUMNS),
+    ),
+}
+
 
 def _normalise_artifact(
     data: pd.DataFrame,
@@ -280,6 +392,275 @@ def write_monitoring_artifacts(
                 "file": contract.filename,
                 "rows": len(prepared),
                 "columns": prepared.shape[1],
+                "start_date": start_date,
+                "end_date": end_date,
+                "read_back_passes": True,
+            }
+        )
+
+    return pd.DataFrame(manifest_rows)
+
+
+def validate_attribution_artifacts(
+    datasets: Mapping[str, pd.DataFrame],
+    tolerance: float = DEFAULT_NUMERICAL_TOLERANCE,
+) -> None:
+    """Validate attribution schemas and accounting."""
+    expected_names = set(ATTRIBUTION_DATASET_NAMES)
+    actual_names = set(datasets)
+
+    if actual_names != expected_names:
+        raise ValueError(
+            "Attribution dataset names do not "
+            "match the artifact contract. "
+            f"Missing: "
+            f"{sorted(expected_names - actual_names)}; "
+            f"additional: "
+            f"{sorted(actual_names - expected_names)}"
+        )
+
+    prepared: dict[str, pd.DataFrame] = {}
+
+    for name in ATTRIBUTION_DATASET_NAMES:
+        data = datasets[name]
+        contract = ATTRIBUTION_ARTIFACT_CONTRACTS[name]
+
+        if not isinstance(data, pd.DataFrame):
+            raise TypeError(f"{name} must be a pandas DataFrame.")
+
+        if data.empty:
+            raise ValueError(f"{name} is empty.")
+
+        missing_columns = set(contract.required_columns) - set(data.columns)
+
+        if missing_columns:
+            raise KeyError(f"{name} is missing columns: " f"{sorted(missing_columns)}")
+
+        if data[list(contract.key_columns)].isna().any().any():
+            raise ValueError(f"{name} contains missing key values.")
+
+        if data.duplicated(list(contract.key_columns)).any():
+            raise ValueError(f"{name} contains duplicate keys.")
+
+        if contract.date_column is not None:
+            converted_dates = pd.to_datetime(
+                data[contract.date_column],
+                errors="coerce",
+            )
+
+            if converted_dates.isna().any():
+                raise ValueError(
+                    f"{name}." f"{contract.date_column} " "contains invalid dates."
+                )
+
+        prepared[name] = _normalise_artifact(
+            data,
+            contract,
+        )
+
+    portfolios = validate_frozen_implementations(prepared["selected_implementations"])
+
+    specification_columns = [
+        "portfolio",
+        "rebalance_frequency",
+        "rebalance_offset",
+        "role",
+    ]
+
+    expected_specifications = (
+        prepared["selected_implementations"][specification_columns]
+        .sort_values("portfolio")
+        .reset_index(drop=True)
+    )
+
+    for name in (
+        "portfolio_daily",
+        "security_holdings",
+        "target_weights",
+        "security_daily",
+    ):
+        observed_specifications = (
+            prepared[name][specification_columns]
+            .drop_duplicates()
+            .sort_values("portfolio")
+            .reset_index(drop=True)
+        )
+
+        if not observed_specifications.equals(expected_specifications):
+            raise ValueError(
+                f"{name} specifications do not " "match selected_implementations."
+            )
+
+    benchmark_names = prepared["benchmark_daily"]["benchmark"].drop_duplicates()
+
+    if len(benchmark_names) != 1:
+        raise ValueError("benchmark_daily must contain exactly " "one benchmark.")
+
+    if prepared["benchmark_daily"]["benchmark_return"].isna().any():
+        raise ValueError("benchmark_daily contains missing returns.")
+
+    benchmark_dates = pd.DatetimeIndex(
+        prepared["benchmark_daily"]["date"]
+    ).sort_values()
+
+    portfolio_daily = prepared["portfolio_daily"]
+
+    transaction_cost_lookup = {
+        specification.portfolio: (specification.transaction_cost_bps)
+        for specification in STRATEGY_SPECIFICATIONS
+    }
+
+    accounting_columns = {
+        "long_short_return": (
+            portfolio_daily["long_return"]
+            + portfolio_daily["short_return"]
+            - portfolio_daily["gross_return"]
+        ),
+        "net_return": (
+            portfolio_daily["gross_return"]
+            - portfolio_daily["transaction_cost"]
+            - portfolio_daily["net_return"]
+        ),
+        "transaction_cost": (
+            portfolio_daily["turnover"]
+            * portfolio_daily["transaction_cost_bps"]
+            / 10_000.0
+            - portfolio_daily["transaction_cost"]
+        ),
+        "gross_exposure": (
+            portfolio_daily["long_exposure"]
+            + portfolio_daily["short_exposure"]
+            - portfolio_daily["gross_exposure"]
+        ),
+        "net_exposure": (
+            portfolio_daily["long_exposure"]
+            - portfolio_daily["short_exposure"]
+            - portfolio_daily["net_exposure"]
+        ),
+    }
+
+    for (
+        identity_name,
+        difference,
+    ) in accounting_columns.items():
+        if difference.abs().max() >= tolerance:
+            raise ValueError(
+                "portfolio_daily " f"{identity_name} identity does " "not reconcile."
+            )
+
+    for portfolio in portfolios:
+        portfolio_data = (
+            portfolio_daily.loc[portfolio_daily["portfolio"].eq(portfolio)]
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+
+        portfolio_dates = pd.DatetimeIndex(portfolio_data["date"])
+
+        if not portfolio_dates.equals(benchmark_dates):
+            raise ValueError(f"{portfolio} dates do not " "match benchmark_daily.")
+
+        expected_cost_bps = transaction_cost_lookup[portfolio]
+
+        if not portfolio_data["transaction_cost_bps"].eq(expected_cost_bps).all():
+            raise ValueError(
+                f"{portfolio} transaction costs "
+                "do not match the frozen "
+                "specification."
+            )
+
+        expected_gross_cumulative = (1.0 + portfolio_data["gross_return"]).cumprod()
+
+        expected_net_cumulative = (1.0 + portfolio_data["net_return"]).cumprod()
+
+        gross_difference = (
+            (expected_gross_cumulative - portfolio_data["gross_cumulative_return"])
+            .abs()
+            .max()
+        )
+
+        net_difference = (
+            (expected_net_cumulative - portfolio_data["net_cumulative_return"])
+            .abs()
+            .max()
+        )
+
+        if gross_difference >= tolerance or net_difference >= tolerance:
+            raise ValueError(f"{portfolio} cumulative returns " "do not reconcile.")
+
+    attribution_audit = reconcile_security_attribution(
+        portfolio_daily,
+        prepared["security_daily"],
+        tolerance=tolerance,
+    )
+
+    if not attribution_audit["audit_passes"].all():
+        raise ValueError("Security-level attribution does " "not reconcile.")
+
+
+def write_attribution_artifacts(
+    datasets: Mapping[str, pd.DataFrame],
+    output_directory: Path,
+) -> pd.DataFrame:
+    """Validate and atomically write attribution data."""
+    validate_attribution_artifacts(datasets)
+
+    output_directory = Path(output_directory)
+
+    output_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    manifest_rows = []
+
+    for name in ATTRIBUTION_DATASET_NAMES:
+        contract = ATTRIBUTION_ARTIFACT_CONTRACTS[name]
+
+        prepared = _normalise_artifact(
+            datasets[name],
+            contract,
+        )
+
+        output_path = output_directory / contract.filename
+
+        temporary_path = output_directory / f".{contract.filename}.tmp"
+
+        try:
+            prepared.to_parquet(
+                temporary_path,
+                index=False,
+            )
+
+            saved = pd.read_parquet(temporary_path)
+
+            pd.testing.assert_frame_equal(
+                saved,
+                prepared,
+                check_dtype=False,
+                check_exact=False,
+                rtol=0.0,
+                atol=0.0,
+            )
+
+            temporary_path.replace(output_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+        if contract.date_column is None:
+            start_date = pd.NaT
+            end_date = pd.NaT
+        else:
+            start_date = prepared[contract.date_column].min()
+
+            end_date = prepared[contract.date_column].max()
+
+        manifest_rows.append(
+            {
+                "dataset": name,
+                "file": contract.filename,
+                "rows": len(prepared),
+                "columns": (prepared.shape[1]),
                 "start_date": start_date,
                 "end_date": end_date,
                 "read_back_passes": True,
