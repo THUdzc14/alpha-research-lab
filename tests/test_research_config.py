@@ -23,6 +23,7 @@ from alpha_research.config.research import (
     ROBUSTNESS_REBALANCE_FREQUENCIES,
     ROBUSTNESS_TRANSACTION_COST_GRID_BPS,
     STRATEGY_SPECIFICATIONS,
+    STRATEGY_EVALUATION_START_DATE,
     final_strategy_order,
     selected_implementations_frame,
 )
@@ -125,6 +126,7 @@ def test_final_strategy_order_matches_notebook_09():
 
 
 def test_robustness_grids_match_notebook_06():
+    assert STRATEGY_EVALUATION_START_DATE == pd.Timestamp("2016-01-07")
     assert ROBUSTNESS_REBALANCE_FREQUENCIES == (1, 5, 10, 21)
     assert ROBUSTNESS_TRANSACTION_COST_GRID_BPS == (
         0.0,
