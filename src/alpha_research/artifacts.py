@@ -272,6 +272,41 @@ def _normalise_artifact(
     return result.sort_values(list(contract.key_columns)).reset_index(drop=True)
 
 
+def validate_artifact(
+    name: str,
+    data: pd.DataFrame,
+    contract: ArtifactContract,
+) -> pd.DataFrame:
+    """Validate and normalise one artifact against its schema contract."""
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError(f"{name} must be a pandas DataFrame.")
+
+    if data.empty:
+        raise ValueError(f"{name} is empty.")
+
+    missing_columns = set(contract.required_columns) - set(data.columns)
+
+    if missing_columns:
+        raise KeyError(f"{name} is missing columns: {sorted(missing_columns)}")
+
+    if data[list(contract.key_columns)].isna().any().any():
+        raise ValueError(f"{name} contains missing key values.")
+
+    if data.duplicated(list(contract.key_columns)).any():
+        raise ValueError(f"{name} contains duplicate keys.")
+
+    if contract.date_column is not None:
+        converted_dates = pd.to_datetime(
+            data[contract.date_column],
+            errors="coerce",
+        )
+
+        if converted_dates.isna().any():
+            raise ValueError(f"{name}.{contract.date_column} contains invalid dates.")
+
+    return _normalise_artifact(data, contract)
+
+
 def validate_monitoring_artifacts(
     datasets: Mapping[str, pd.DataFrame],
 ) -> None:
@@ -289,38 +324,8 @@ def validate_monitoring_artifacts(
     prepared: dict[str, pd.DataFrame] = {}
 
     for name in MONITORING_DATASET_NAMES:
-        data = datasets[name]
         contract = MONITORING_ARTIFACT_CONTRACTS[name]
-
-        if not isinstance(data, pd.DataFrame):
-            raise TypeError(f"{name} must be a pandas DataFrame.")
-
-        if data.empty:
-            raise ValueError(f"{name} is empty.")
-
-        missing_columns = set(contract.required_columns) - set(data.columns)
-
-        if missing_columns:
-            raise KeyError(f"{name} is missing columns: {sorted(missing_columns)}")
-
-        if data[list(contract.key_columns)].isna().any().any():
-            raise ValueError(f"{name} contains missing key values.")
-
-        if data.duplicated(list(contract.key_columns)).any():
-            raise ValueError(f"{name} contains duplicate keys.")
-
-        if contract.date_column is not None:
-            converted_dates = pd.to_datetime(
-                data[contract.date_column],
-                errors="coerce",
-            )
-
-            if converted_dates.isna().any():
-                raise ValueError(
-                    f"{name}.{contract.date_column} contains invalid dates."
-                )
-
-        prepared[name] = _normalise_artifact(data, contract)
+        prepared[name] = validate_artifact(name, datasets[name], contract)
 
     portfolio_date_names = (
         "beta",
@@ -422,41 +427,8 @@ def validate_attribution_artifacts(
     prepared: dict[str, pd.DataFrame] = {}
 
     for name in ATTRIBUTION_DATASET_NAMES:
-        data = datasets[name]
         contract = ATTRIBUTION_ARTIFACT_CONTRACTS[name]
-
-        if not isinstance(data, pd.DataFrame):
-            raise TypeError(f"{name} must be a pandas DataFrame.")
-
-        if data.empty:
-            raise ValueError(f"{name} is empty.")
-
-        missing_columns = set(contract.required_columns) - set(data.columns)
-
-        if missing_columns:
-            raise KeyError(f"{name} is missing columns: " f"{sorted(missing_columns)}")
-
-        if data[list(contract.key_columns)].isna().any().any():
-            raise ValueError(f"{name} contains missing key values.")
-
-        if data.duplicated(list(contract.key_columns)).any():
-            raise ValueError(f"{name} contains duplicate keys.")
-
-        if contract.date_column is not None:
-            converted_dates = pd.to_datetime(
-                data[contract.date_column],
-                errors="coerce",
-            )
-
-            if converted_dates.isna().any():
-                raise ValueError(
-                    f"{name}." f"{contract.date_column} " "contains invalid dates."
-                )
-
-        prepared[name] = _normalise_artifact(
-            data,
-            contract,
-        )
+        prepared[name] = validate_artifact(name, datasets[name], contract)
 
     portfolios = validate_frozen_implementations(prepared["selected_implementations"])
 
