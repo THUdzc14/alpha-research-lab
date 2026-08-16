@@ -406,3 +406,281 @@ def build_latest_portfolio_snapshot(
     snapshot["latest_date"] = snapshot["performance_risk_date"]
 
     return snapshot.loc[:, LATEST_PORTFOLIO_SNAPSHOT_COLUMNS].reset_index(drop=True)
+
+
+SIGNAL_HEALTH_HISTORY_COLUMNS = (
+    "date",
+    "factor",
+    "signal_coverage",
+    "raw_iqr",
+    "ic",
+    "rolling_mean_ic_252",
+    "rank_stability_1d",
+    "rank_stability_21d",
+)
+
+FACTOR_DEPENDENCE_HISTORY_COLUMNS = (
+    "date",
+    "factor_rank_correlation",
+    "observations",
+    "rolling_factor_rank_correlation_252",
+)
+
+LATEST_FACTOR_SNAPSHOT_COLUMNS = (
+    "factor",
+    "latest_date",
+    "overall_status",
+    "signal_status",
+    "signal_coverage",
+    "raw_iqr",
+    "ic_as_of_date",
+    "ic",
+    "rolling_mean_ic_252_as_of_date",
+    "rolling_mean_ic_252",
+    "rank_stability_1d",
+    "rank_stability_21d",
+)
+
+_PREDICTIVE_SIGNAL_METRICS = (
+    "ic",
+    "rolling_mean_ic_252",
+)
+
+
+def _resolve_factors(
+    data: pd.DataFrame,
+    factors: Sequence[str] | None,
+    *,
+    name: str,
+) -> list[str]:
+    available = list(pd.unique(data["factor"].dropna()))
+
+    if factors is None:
+        return available
+
+    if isinstance(factors, str):
+        raise TypeError("factors must be a sequence of factor names.")
+
+    selected = list(factors)
+
+    if not selected:
+        raise ValueError("factors must not be empty.")
+
+    if len(selected) != len(set(selected)):
+        raise ValueError("factors must contain unique names.")
+
+    missing = sorted(set(selected) - set(available))
+
+    if missing:
+        raise ValueError(f"{name} is missing factors: {missing}")
+
+    return selected
+
+
+def _filter_dashboard_dates(
+    data: pd.DataFrame,
+    *,
+    name: str,
+    start_date: Any | None,
+    end_date: Any | None,
+) -> pd.DataFrame:
+    normalised_start = _normalise_date_bound(start_date, name="start_date")
+    normalised_end = _normalise_date_bound(end_date, name="end_date")
+
+    if (
+        normalised_start is not None
+        and normalised_end is not None
+        and normalised_start > normalised_end
+    ):
+        raise ValueError("start_date must not be after end_date.")
+
+    result = data
+
+    if normalised_start is not None:
+        result = result.loc[result["date"].ge(normalised_start)]
+
+    if normalised_end is not None:
+        result = result.loc[result["date"].le(normalised_end)]
+
+    if result.empty:
+        raise ValueError(f"No {name} observations remain after date filtering.")
+
+    return result.copy()
+
+
+def prepare_signal_health_history(
+    signal_health: pd.DataFrame,
+    *,
+    factors: Sequence[str] | None = None,
+    start_date: Any | None = None,
+    end_date: Any | None = None,
+) -> pd.DataFrame:
+    """Prepare retained-signal histories for dashboard tables and figures."""
+    _require_columns(
+        signal_health,
+        set(SIGNAL_HEALTH_HISTORY_COLUMNS),
+        name="signal_health",
+    )
+    factor_order = _resolve_factors(
+        signal_health,
+        factors,
+        name="signal_health",
+    )
+    prepared = signal_health.loc[
+        signal_health["factor"].isin(factor_order),
+        SIGNAL_HEALTH_HISTORY_COLUMNS,
+    ].copy()
+    prepared["date"] = pd.to_datetime(prepared["date"], errors="coerce")
+
+    if prepared["date"].isna().any():
+        raise ValueError("signal_health.date contains invalid dates.")
+
+    if prepared.duplicated(["factor", "date"]).any():
+        raise ValueError("signal_health contains duplicate factor-date rows.")
+
+    prepared = _filter_dashboard_dates(
+        prepared,
+        name="signal-health",
+        start_date=start_date,
+        end_date=end_date,
+    )
+    remaining_factors = set(prepared["factor"])
+    missing_after_filter = [
+        factor for factor in factor_order if factor not in remaining_factors
+    ]
+
+    if missing_after_filter:
+        raise ValueError(
+            "No signal-health observations remain for factors: "
+            f"{missing_after_filter}"
+        )
+
+    positions = {factor: position for position, factor in enumerate(factor_order)}
+    prepared["_factor_order"] = prepared["factor"].map(positions)
+
+    return (
+        prepared.sort_values(["_factor_order", "date"], kind="stable")
+        .drop(columns="_factor_order")
+        .reset_index(drop=True)
+        .loc[:, SIGNAL_HEALTH_HISTORY_COLUMNS]
+    )
+
+
+def prepare_factor_dependence_history(
+    factor_dependence: pd.DataFrame,
+    *,
+    start_date: Any | None = None,
+    end_date: Any | None = None,
+) -> pd.DataFrame:
+    """Prepare retained-factor dependence history for dashboard display."""
+    _require_columns(
+        factor_dependence,
+        set(FACTOR_DEPENDENCE_HISTORY_COLUMNS),
+        name="factor_dependence",
+    )
+    prepared = factor_dependence.loc[:, FACTOR_DEPENDENCE_HISTORY_COLUMNS].copy()
+    prepared["date"] = pd.to_datetime(prepared["date"], errors="coerce")
+
+    if prepared["date"].isna().any():
+        raise ValueError("factor_dependence.date contains invalid dates.")
+
+    if prepared["date"].duplicated().any():
+        raise ValueError("factor_dependence contains duplicate dates.")
+
+    prepared = _filter_dashboard_dates(
+        prepared,
+        name="factor-dependence",
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    return prepared.sort_values("date", kind="stable").reset_index(drop=True)
+
+
+def build_latest_factor_snapshot(
+    latest_overview: pd.DataFrame,
+    signal_health: pd.DataFrame,
+    *,
+    factors: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """Build the compact latest retained-factor monitoring table.
+
+    Predictive metrics use the latest non-missing observation because their
+    forward-return labels are unavailable at the right edge of the signal
+    history. Their metric-specific ``*_as_of_date`` columns make that lag
+    explicit instead of presenting a stale value as a current-date value.
+    """
+    history = prepare_signal_health_history(
+        signal_health,
+        factors=factors,
+    )
+    factor_order = list(pd.unique(history["factor"]))
+
+    latest = (
+        history.sort_values(["factor", "date"], kind="stable")
+        .groupby("factor", sort=False, as_index=False)
+        .tail(1)
+        .rename(columns={"date": "latest_date"})
+        .drop(columns=list(_PREDICTIVE_SIGNAL_METRICS))
+    )
+
+    for metric in _PREDICTIVE_SIGNAL_METRICS:
+        available = history.dropna(subset=[metric])
+
+        latest_available = (
+            available.sort_values(["factor", "date"], kind="stable")
+            .groupby("factor", sort=False, as_index=False)
+            .tail(1)
+            .loc[:, ["factor", "date", metric]]
+            .rename(columns={"date": f"{metric}_as_of_date"})
+        )
+
+        latest = latest.merge(
+            latest_available,
+            on="factor",
+            how="left",
+            validate="one_to_one",
+        )
+
+    _require_columns(
+        latest_overview,
+        {
+            "entity_type",
+            "entity",
+            "overall_status",
+            "signal_status",
+        },
+        name="latest_overview",
+    )
+
+    overview = latest_overview.loc[
+        latest_overview["entity_type"].astype(str).str.casefold().eq("factor"),
+        ["entity", "overall_status", "signal_status"],
+    ].rename(columns={"entity": "factor"})
+
+    if overview["factor"].duplicated().any():
+        raise ValueError("latest_overview contains duplicate factor rows.")
+
+    missing_overviews = [
+        factor for factor in factor_order if factor not in set(overview["factor"])
+    ]
+
+    if missing_overviews:
+        raise ValueError(f"latest_overview is missing factors: {missing_overviews}")
+
+    snapshot = latest.merge(
+        overview,
+        on="factor",
+        how="left",
+        validate="one_to_one",
+    )
+
+    positions = {factor: position for position, factor in enumerate(factor_order)}
+    snapshot["_factor_order"] = snapshot["factor"].map(positions)
+
+    return (
+        snapshot.sort_values("_factor_order", kind="stable")
+        .drop(columns="_factor_order")
+        .reset_index(drop=True)
+        .loc[:, LATEST_FACTOR_SNAPSHOT_COLUMNS]
+    )
