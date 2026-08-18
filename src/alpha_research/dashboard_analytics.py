@@ -9,6 +9,12 @@ import pandas as pd
 
 from alpha_research.config.research import TRADING_DAYS_PER_YEAR
 from alpha_research.metrics import summarise_returns
+from alpha_research.monitoring import (
+    DIAGNOSTIC_FLAG_EXPORT_COLUMNS,
+    MONITORING_CATEGORIES,
+    STATUS_SEVERITY,
+    prepare_diagnostic_flags,
+)
 
 PERFORMANCE_HISTORY_COLUMNS = (
     "date",
@@ -21,6 +27,83 @@ PERFORMANCE_HISTORY_COLUMNS = (
     "rolling_sharpe_252",
     "annualised_volatility_126",
     "maximum_drawdown_252",
+)
+
+BETA_HISTORY_COLUMNS = (
+    "date",
+    "portfolio",
+    "beta_coverage",
+    "holdings_market_beta",
+    "realised_gross_beta_126",
+    "beta_measurement_gap",
+)
+
+CONCENTRATION_HISTORY_COLUMNS = (
+    "date",
+    "portfolio",
+    "effective_position_count",
+    "largest_absolute_sector_net_exposure",
+    "top_five_absolute_beta_contribution_share",
+    "effective_contributor_count_63",
+    "top_five_contributor_share_63",
+    "effective_contribution_sector_count_63",
+)
+
+IMPLEMENTATION_SOURCE_COLUMNS = (
+    "date",
+    "portfolio",
+    "turnover",
+    "transaction_cost",
+    "trade_count",
+    "annualised_turnover_63",
+    "largest_trade_weight_63",
+    "minimum_trade_capacity_1pct_usd_63",
+    "maximum_missing_return_weight_63",
+)
+
+IMPLEMENTATION_HISTORY_COLUMNS = (
+    *IMPLEMENTATION_SOURCE_COLUMNS,
+    "minimum_trade_capacity_1pct_usd_millions_63",
+)
+
+LIQUIDITY_COVERAGE_HISTORY_COLUMNS = (
+    "date",
+    "portfolio",
+    "turnover",
+    "liquidity_covered_turnover",
+    "liquidity_coverage",
+)
+
+DIAGNOSTIC_TABLE_COLUMNS = tuple(DIAGNOSTIC_FLAG_EXPORT_COLUMNS)
+
+MONITORING_OVERVIEW_COLUMNS = (
+    "entity_type",
+    "entity",
+    "diagnostics",
+    "passes",
+    "warnings",
+    "breaches",
+    "unavailable",
+    "overall_status",
+    "signal_status",
+    "market_risk_status",
+    "concentration_status",
+    "implementation_status",
+)
+
+_MONITORING_COUNT_COLUMNS = (
+    "diagnostics",
+    "passes",
+    "warnings",
+    "breaches",
+    "unavailable",
+)
+
+_MONITORING_CATEGORY_STATUS_COLUMNS = (
+    "signal_status",
+    "market_risk_status",
+    "concentration_status",
+    "implementation_status",
 )
 
 LATEST_PORTFOLIO_SNAPSHOT_COLUMNS = (
@@ -506,6 +589,348 @@ def _filter_dashboard_dates(
         raise ValueError(f"No {name} observations remain after date filtering.")
 
     return result.copy()
+
+
+def _prepare_portfolio_monitoring_history(
+    data: pd.DataFrame,
+    *,
+    columns: Sequence[str],
+    name: str,
+    portfolios: Sequence[str] | None,
+    start_date: Any | None,
+    end_date: Any | None,
+) -> pd.DataFrame:
+    _require_columns(data, set(columns), name=name)
+    portfolio_order = _resolve_portfolios(
+        data,
+        portfolios,
+        name=name,
+    )
+
+    prepared = data.loc[
+        data["portfolio"].isin(portfolio_order),
+        list(columns),
+    ].copy()
+    prepared["date"] = pd.to_datetime(
+        prepared["date"],
+        errors="coerce",
+    )
+
+    if prepared["date"].isna().any():
+        raise ValueError(f"{name}.date contains invalid dates.")
+
+    if prepared.duplicated(["portfolio", "date"]).any():
+        raise ValueError(f"{name} contains duplicate portfolio-date rows.")
+
+    metric_columns = [
+        column for column in columns if column not in {"date", "portfolio"}
+    ]
+
+    for column in metric_columns:
+        numeric_values = pd.to_numeric(
+            prepared[column],
+            errors="coerce",
+        )
+        invalid_values = prepared[column].notna() & numeric_values.isna()
+
+        if invalid_values.any():
+            raise ValueError(f"{name}.{column} contains non-numeric values.")
+
+        prepared[column] = numeric_values
+
+    prepared = _filter_dashboard_dates(
+        prepared,
+        name=name.replace("_", "-"),
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    remaining_portfolios = set(prepared["portfolio"])
+    missing_after_filter = [
+        portfolio
+        for portfolio in portfolio_order
+        if portfolio not in remaining_portfolios
+    ]
+
+    if missing_after_filter:
+        raise ValueError(
+            f"No {name.replace('_', '-')} observations remain "
+            f"for portfolios: {missing_after_filter}"
+        )
+
+    return _sort_portfolios(prepared, portfolio_order).loc[:, columns]
+
+
+def prepare_beta_history(
+    beta: pd.DataFrame,
+    *,
+    portfolios: Sequence[str] | None = None,
+    start_date: Any | None = None,
+    end_date: Any | None = None,
+) -> pd.DataFrame:
+    """Prepare validated beta-monitoring history for dashboard display."""
+    return _prepare_portfolio_monitoring_history(
+        beta,
+        columns=BETA_HISTORY_COLUMNS,
+        name="beta",
+        portfolios=portfolios,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+def prepare_concentration_history(
+    concentration: pd.DataFrame,
+    *,
+    portfolios: Sequence[str] | None = None,
+    start_date: Any | None = None,
+    end_date: Any | None = None,
+) -> pd.DataFrame:
+    """Prepare validated concentration history for dashboard display."""
+    return _prepare_portfolio_monitoring_history(
+        concentration,
+        columns=CONCENTRATION_HISTORY_COLUMNS,
+        name="concentration",
+        portfolios=portfolios,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+def prepare_implementation_history(
+    implementation: pd.DataFrame,
+    *,
+    portfolios: Sequence[str] | None = None,
+    start_date: Any | None = None,
+    end_date: Any | None = None,
+) -> pd.DataFrame:
+    """Prepare implementation history and a display-scale capacity field."""
+    history = _prepare_portfolio_monitoring_history(
+        implementation,
+        columns=IMPLEMENTATION_SOURCE_COLUMNS,
+        name="implementation",
+        portfolios=portfolios,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    history["minimum_trade_capacity_1pct_usd_millions_63"] = (
+        history["minimum_trade_capacity_1pct_usd_63"] / 1_000_000.0
+    )
+
+    return history.loc[:, IMPLEMENTATION_HISTORY_COLUMNS]
+
+
+def prepare_liquidity_coverage_history(
+    liquidity_coverage: pd.DataFrame,
+    *,
+    portfolios: Sequence[str] | None = None,
+    start_date: Any | None = None,
+    end_date: Any | None = None,
+) -> pd.DataFrame:
+    """Prepare traded-weight liquidity coverage for dashboard display."""
+    return _prepare_portfolio_monitoring_history(
+        liquidity_coverage,
+        columns=LIQUIDITY_COVERAGE_HISTORY_COLUMNS,
+        name="liquidity_coverage",
+        portfolios=portfolios,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+def _normalise_label_filter(
+    values: Sequence[str] | None,
+    *,
+    name: str,
+) -> list[str] | None:
+    if values is None:
+        return None
+
+    if isinstance(values, str):
+        raise TypeError(f"{name} must be a sequence of labels.")
+
+    selected = list(values)
+
+    if not selected:
+        raise ValueError(f"{name} must not be empty.")
+
+    if len(selected) != len(set(selected)):
+        raise ValueError(f"{name} must contain unique labels.")
+
+    return selected
+
+
+def _filter_dashboard_labels(
+    data: pd.DataFrame,
+    *,
+    column: str,
+    values: Sequence[str] | None,
+    name: str,
+    available_labels: set[str] | None = None,
+) -> pd.DataFrame:
+    selected = _normalise_label_filter(
+        values,
+        name=name,
+    )
+
+    if selected is None:
+        return data
+
+    available = (
+        set(data[column].dropna()) if available_labels is None else available_labels
+    )
+    missing = sorted(set(selected) - available)
+
+    if missing:
+        raise ValueError(f"{name} contains unknown labels: {missing}")
+
+    return data.loc[data[column].isin(selected)].copy()
+
+
+def prepare_diagnostic_table(
+    diagnostic_flags: pd.DataFrame,
+    *,
+    entity_types: Sequence[str] | None = None,
+    entities: Sequence[str] | None = None,
+    categories: Sequence[str] | None = None,
+    statuses: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """Prepare detailed dashboard diagnostics with optional filters."""
+    prepared = prepare_diagnostic_flags(diagnostic_flags)
+
+    available_labels = {
+        column: set(prepared[column].dropna()) for column in ("entity_type", "entity")
+    }
+    available_labels["category"] = set(MONITORING_CATEGORIES)
+    available_labels["status"] = set(STATUS_SEVERITY)
+
+    filters = (
+        ("entity_type", entity_types, "entity_types"),
+        ("entity", entities, "entities"),
+        ("category", categories, "categories"),
+        ("status", statuses, "statuses"),
+    )
+
+    for column, values, name in filters:
+        prepared = _filter_dashboard_labels(
+            prepared,
+            column=column,
+            values=values,
+            name=name,
+            available_labels=available_labels[column],
+        )
+
+    return prepared.loc[:, DIAGNOSTIC_TABLE_COLUMNS].reset_index(drop=True)
+
+
+def prepare_monitoring_overview(
+    latest_overview: pd.DataFrame,
+    *,
+    entity_types: Sequence[str] | None = None,
+    entities: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """Validate and filter the materialised status overview."""
+    _require_columns(
+        latest_overview,
+        set(MONITORING_OVERVIEW_COLUMNS),
+        name="latest_overview",
+    )
+
+    prepared = latest_overview.loc[
+        :,
+        MONITORING_OVERVIEW_COLUMNS,
+    ].copy()
+
+    if prepared.empty:
+        raise ValueError("latest_overview must not be empty.")
+
+    if prepared.duplicated(["entity_type", "entity"]).any():
+        raise ValueError("latest_overview contains duplicate entity rows.")
+
+    for column in _MONITORING_COUNT_COLUMNS:
+        numeric_values = pd.to_numeric(
+            prepared[column],
+            errors="coerce",
+        )
+        invalid_values = prepared[column].notna() & numeric_values.isna()
+
+        if invalid_values.any() or numeric_values.isna().any():
+            raise ValueError(f"latest_overview.{column} " "contains invalid counts.")
+
+        if numeric_values.lt(0).any() or numeric_values.mod(1).ne(0).any():
+            raise ValueError(f"latest_overview.{column} " "contains invalid counts.")
+
+        prepared[column] = numeric_values.astype(int)
+
+    component_counts = prepared[
+        [
+            "passes",
+            "warnings",
+            "breaches",
+            "unavailable",
+        ]
+    ].sum(axis=1)
+
+    if not component_counts.eq(prepared["diagnostics"]).all():
+        raise ValueError("latest_overview diagnostic counts " "do not reconcile.")
+
+    allowed_statuses = set(STATUS_SEVERITY)
+    unknown_overall = sorted(
+        set(prepared["overall_status"].dropna()) - allowed_statuses
+    )
+
+    if unknown_overall or prepared["overall_status"].isna().any():
+        raise ValueError(
+            "latest_overview contains unknown " f"overall statuses: {unknown_overall}"
+        )
+
+    expected_overall = pd.Series(
+        "PASS",
+        index=prepared.index,
+        dtype="object",
+    )
+    expected_overall.loc[prepared["warnings"].gt(0)] = "WARNING"
+    expected_overall.loc[prepared["unavailable"].gt(0)] = "UNAVAILABLE"
+    expected_overall.loc[prepared["breaches"].gt(0)] = "BREACH"
+
+    if not prepared["overall_status"].eq(expected_overall).all():
+        raise ValueError("latest_overview overall statuses " "do not reconcile.")
+
+    allowed_category_statuses = {
+        *allowed_statuses,
+        "N/A",
+    }
+
+    for column in _MONITORING_CATEGORY_STATUS_COLUMNS:
+        unknown = sorted(set(prepared[column].dropna()) - allowed_category_statuses)
+
+        if unknown or prepared[column].isna().any():
+            raise ValueError(
+                f"latest_overview.{column} contains " f"unknown statuses: {unknown}"
+            )
+
+    available_labels = {
+        "entity_type": set(prepared["entity_type"].dropna()),
+        "entity": set(prepared["entity"].dropna()),
+    }
+
+    prepared = _filter_dashboard_labels(
+        prepared,
+        column="entity_type",
+        values=entity_types,
+        name="entity_types",
+        available_labels=available_labels["entity_type"],
+    )
+    prepared = _filter_dashboard_labels(
+        prepared,
+        column="entity",
+        values=entities,
+        name="entities",
+        available_labels=available_labels["entity"],
+    )
+
+    return prepared.loc[:, MONITORING_OVERVIEW_COLUMNS].reset_index(drop=True)
 
 
 def prepare_signal_health_history(
