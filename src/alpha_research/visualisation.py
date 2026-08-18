@@ -949,3 +949,418 @@ def build_diagnostic_count_figure(
     )
 
     return figure
+
+
+ATTRIBUTION_COMPONENT_STYLES = {
+    "Long side": {
+        "color": "#2563EB",
+        "dash": "solid",
+        "width": 2.0,
+    },
+    "Short side": {
+        "color": "#F59E0B",
+        "dash": "solid",
+        "width": 2.0,
+    },
+    "Transaction costs": {
+        "color": "#DC2626",
+        "dash": "dot",
+        "width": 1.5,
+    },
+    "Net contribution": {
+        "color": "#10B981",
+        "dash": "solid",
+        "width": 2.0,
+    },
+}
+
+
+def build_side_cost_attribution_figure(
+    attribution_summary: pd.DataFrame,
+    *,
+    title: str = "Annualised Arithmetic Return Contributions",
+    height: int = DEFAULT_FIGURE_HEIGHT,
+) -> go.Figure:
+    """Plot annualised long, short, and transaction-cost contributions."""
+    _validate_figure_height(height)
+    required_columns = {
+        "portfolio",
+        "annualised_long_contribution",
+        "annualised_short_contribution",
+        "annualised_cost_drag",
+    }
+    _require_figure_columns(
+        attribution_summary,
+        required_columns,
+    )
+
+    if attribution_summary.empty:
+        raise ValueError("attribution_summary must not be empty.")
+
+    if attribution_summary["portfolio"].duplicated().any():
+        raise ValueError("attribution_summary contains duplicate portfolios.")
+
+    components = {
+        "Long side": (attribution_summary["annualised_long_contribution"]),
+        "Short side": (attribution_summary["annualised_short_contribution"]),
+        "Transaction costs": (-attribution_summary["annualised_cost_drag"]),
+    }
+    figure = go.Figure()
+
+    for component, values in components.items():
+        numeric_values = pd.to_numeric(
+            values,
+            errors="coerce",
+        )
+
+        if numeric_values.isna().any():
+            raise ValueError(
+                "attribution_summary contains invalid " f"{component} values."
+            )
+
+        figure.add_trace(
+            go.Bar(
+                x=attribution_summary["portfolio"],
+                y=numeric_values,
+                name=component,
+                marker_color=(ATTRIBUTION_COMPONENT_STYLES[component]["color"]),
+                hovertemplate=("%{x}<br>" + component + ": %{y:.2%}<extra></extra>"),
+            )
+        )
+
+    figure.update_layout(
+        title={
+            "text": title,
+            "x": 0.01,
+            "xanchor": "left",
+        },
+        template="plotly_white",
+        height=height,
+        margin={
+            "l": 64,
+            "r": 24,
+            "t": 72,
+            "b": 80,
+        },
+        barmode="group",
+        hovermode="x unified",
+        legend={
+            "orientation": "h",
+            "x": 0.0,
+            "xanchor": "left",
+            "y": 1.02,
+            "yanchor": "bottom",
+        },
+    )
+    figure.update_xaxes(
+        title_text="",
+        showgrid=False,
+    )
+    figure.update_yaxes(
+        title_text="Annualised contribution",
+        tickformat=".0%",
+        gridcolor="#E2E8F0",
+        zeroline=False,
+    )
+    figure.add_hline(
+        y=0.0,
+        line_color="#64748B",
+        line_width=1.0,
+    )
+
+    return figure
+
+
+def build_cumulative_attribution_figure(
+    attribution_history: pd.DataFrame,
+    portfolio: str,
+    *,
+    title: str | None = None,
+    height: int = DEFAULT_FIGURE_HEIGHT,
+) -> go.Figure:
+    """Plot cumulative additive attribution for one portfolio."""
+    if not isinstance(portfolio, str) or not portfolio:
+        raise ValueError("portfolio must be a non-empty string.")
+
+    columns = {
+        "cumulative_long_contribution": "Long side",
+        "cumulative_short_contribution": "Short side",
+        "cumulative_cost_contribution": ("Transaction costs"),
+        "cumulative_net_contribution": ("Net contribution"),
+    }
+    _require_figure_columns(
+        attribution_history,
+        {"date", "portfolio", *columns},
+    )
+    selected = attribution_history.loc[
+        attribution_history["portfolio"].eq(portfolio),
+        ["date", *columns],
+    ]
+
+    if selected.empty:
+        raise ValueError("attribution_history is missing portfolio: " f"{portfolio}")
+
+    figure_data = selected.rename(columns=columns).melt(
+        id_vars="date",
+        var_name="portfolio",
+        value_name="cumulative_contribution",
+    )
+    figure = _line_figure(
+        figure_data,
+        value_column="cumulative_contribution",
+        title=(
+            f"Cumulative Additive Attribution — {portfolio}" if title is None else title
+        ),
+        yaxis_title="Cumulative contribution",
+        tickformat=".0%",
+        hoverformat=".2%",
+        show_zero_line=True,
+        height=height,
+    )
+
+    for trace in figure.data:
+        style = ATTRIBUTION_COMPONENT_STYLES[trace.name]
+        trace.line.color = style["color"]
+        trace.line.dash = style["dash"]
+        trace.line.width = style["width"]
+
+    return figure
+
+
+def _validate_security_contribution_summary(
+    security_summary: pd.DataFrame,
+) -> pd.DataFrame:
+    required_columns = {
+        "portfolio",
+        "ticker",
+        "cumulative_net_contribution",
+        "absolute_gross_contribution",
+        "absolute_contribution_share",
+    }
+    _require_figure_columns(
+        security_summary,
+        required_columns,
+    )
+
+    if security_summary.empty:
+        raise ValueError("security_summary must not be empty.")
+
+    if security_summary["ticker"].duplicated().any():
+        raise ValueError("security_summary contains duplicate tickers.")
+
+    portfolios = security_summary["portfolio"].dropna().unique()
+
+    if len(portfolios) != 1:
+        raise ValueError("security_summary must contain " "exactly one portfolio.")
+
+    prepared = security_summary.copy()
+
+    for column in (
+        "cumulative_net_contribution",
+        "absolute_gross_contribution",
+        "absolute_contribution_share",
+    ):
+        prepared[column] = pd.to_numeric(
+            prepared[column],
+            errors="coerce",
+        )
+
+        if prepared[column].isna().any():
+            raise ValueError(f"security_summary.{column} " "contains invalid values.")
+
+    if prepared["absolute_gross_contribution"].lt(0.0).any():
+        raise ValueError("absolute_gross_contribution " "must be non-negative.")
+
+    if prepared["absolute_contribution_share"].lt(0.0).any():
+        raise ValueError("absolute_contribution_share " "must be non-negative.")
+
+    return prepared
+
+
+def _validate_top_n(top_n: int) -> None:
+    if isinstance(top_n, bool) or not isinstance(top_n, int) or top_n <= 0:
+        raise ValueError("top_n must be a positive integer.")
+
+
+def build_security_contribution_figure(
+    security_summary: pd.DataFrame,
+    *,
+    top_n: int = 10,
+    title: str | None = None,
+    height: int = 520,
+) -> go.Figure:
+    """Plot the largest positive and negative net contributors."""
+    _validate_figure_height(height)
+    _validate_top_n(top_n)
+    prepared = _validate_security_contribution_summary(security_summary)
+    value_column = "cumulative_net_contribution"
+
+    positive = prepared.loc[prepared[value_column].gt(0.0)].nlargest(
+        top_n,
+        value_column,
+    )
+    negative = prepared.loc[prepared[value_column].lt(0.0)].nsmallest(
+        top_n,
+        value_column,
+    )
+    selected = pd.concat(
+        [negative, positive],
+        ignore_index=True,
+    )
+
+    if selected.empty:
+        selected = prepared.nlargest(
+            top_n,
+            "absolute_gross_contribution",
+        )
+
+    selected = (
+        selected.drop_duplicates("ticker")
+        .sort_values(
+            value_column,
+            kind="stable",
+        )
+        .reset_index(drop=True)
+    )
+    portfolio = str(prepared["portfolio"].iloc[0])
+    colours = (
+        selected[value_column]
+        .ge(0.0)
+        .map(
+            {
+                True: "#10B981",
+                False: "#DC2626",
+            }
+        )
+    )
+
+    figure = go.Figure(
+        go.Bar(
+            x=selected[value_column],
+            y=selected["ticker"],
+            orientation="h",
+            marker_color=colours,
+            name="Net contribution",
+            customdata=selected[["absolute_contribution_share"]].to_numpy(),
+            hovertemplate=(
+                "%{y}<br>"
+                "Net contribution: %{x:.2%}"
+                "<br>Absolute contribution share: "
+                "%{customdata[0]:.2%}"
+                "<extra></extra>"
+            ),
+        )
+    )
+    figure.update_layout(
+        title={
+            "text": (
+                "Largest Security Contributors" f" — {portfolio}"
+                if title is None
+                else title
+            ),
+            "x": 0.01,
+            "xanchor": "left",
+        },
+        template="plotly_white",
+        height=height,
+        margin={
+            "l": 72,
+            "r": 24,
+            "t": 72,
+            "b": 56,
+        },
+        showlegend=False,
+    )
+    figure.update_xaxes(
+        title_text="Cumulative net contribution",
+        tickformat=".1%",
+        gridcolor="#E2E8F0",
+        zeroline=False,
+    )
+    figure.update_yaxes(
+        title_text="",
+        showgrid=False,
+    )
+    figure.add_vline(
+        x=0.0,
+        line_color="#64748B",
+        line_width=1.0,
+    )
+
+    return figure
+
+
+def build_security_contribution_share_figure(
+    security_summary: pd.DataFrame,
+    *,
+    top_n: int = 15,
+    title: str | None = None,
+    height: int = 520,
+) -> go.Figure:
+    """Plot the largest absolute contribution shares."""
+    _validate_figure_height(height)
+    _validate_top_n(top_n)
+    prepared = _validate_security_contribution_summary(security_summary)
+    selected = (
+        prepared.nlargest(
+            top_n,
+            "absolute_gross_contribution",
+        )
+        .sort_values(
+            "absolute_contribution_share",
+            kind="stable",
+        )
+        .reset_index(drop=True)
+    )
+    portfolio = str(prepared["portfolio"].iloc[0])
+
+    figure = go.Figure(
+        go.Bar(
+            x=selected["absolute_contribution_share"],
+            y=selected["ticker"],
+            orientation="h",
+            marker_color="#2563EB",
+            name="Absolute contribution share",
+            customdata=selected[["cumulative_net_contribution"]].to_numpy(),
+            hovertemplate=(
+                "%{y}<br>"
+                "Absolute contribution share: "
+                "%{x:.2%}"
+                "<br>Net contribution: "
+                "%{customdata[0]:.2%}"
+                "<extra></extra>"
+            ),
+        )
+    )
+    figure.update_layout(
+        title={
+            "text": (
+                "Largest Absolute Security " "Contribution Shares" f" — {portfolio}"
+                if title is None
+                else title
+            ),
+            "x": 0.01,
+            "xanchor": "left",
+        },
+        template="plotly_white",
+        height=height,
+        margin={
+            "l": 72,
+            "r": 24,
+            "t": 72,
+            "b": 56,
+        },
+        showlegend=False,
+    )
+    figure.update_xaxes(
+        title_text=("Share of absolute gross contribution"),
+        tickformat=".1%",
+        gridcolor="#E2E8F0",
+        rangemode="tozero",
+    )
+    figure.update_yaxes(
+        title_text="",
+        showgrid=False,
+    )
+
+    return figure

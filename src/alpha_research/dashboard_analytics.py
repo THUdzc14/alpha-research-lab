@@ -5,9 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
-from alpha_research.config.research import TRADING_DAYS_PER_YEAR
+from alpha_research.config.research import (
+    DEFAULT_NUMERICAL_TOLERANCE,
+    TRADING_DAYS_PER_YEAR,
+)
 from alpha_research.metrics import summarise_returns
 from alpha_research.monitoring import (
     DIAGNOSTIC_FLAG_EXPORT_COLUMNS,
@@ -132,6 +136,81 @@ LATEST_PORTFOLIO_SNAPSHOT_COLUMNS = (
     "minimum_trade_capacity_1pct_usd_63",
     "maximum_missing_return_weight_63",
     "liquidity_coverage",
+)
+
+PORTFOLIO_ATTRIBUTION_SOURCE_COLUMNS = (
+    "date",
+    "portfolio",
+    "is_rebalance",
+    "long_return",
+    "short_return",
+    "gross_return",
+    "transaction_cost",
+    "net_return",
+    "turnover",
+    "long_exposure",
+    "short_exposure",
+    "net_exposure",
+    "gross_exposure",
+    "missing_return_weight",
+)
+
+PORTFOLIO_ATTRIBUTION_HISTORY_COLUMNS = (
+    *PORTFOLIO_ATTRIBUTION_SOURCE_COLUMNS,
+    "cost_contribution",
+    "cumulative_long_contribution",
+    "cumulative_short_contribution",
+    "cumulative_gross_contribution",
+    "cumulative_cost_contribution",
+    "cumulative_net_contribution",
+)
+
+SIDE_COST_ATTRIBUTION_SUMMARY_COLUMNS = (
+    "portfolio",
+    "observations",
+    "rebalance_count",
+    "start_date",
+    "end_date",
+    "cumulative_long_contribution",
+    "cumulative_short_contribution",
+    "cumulative_gross_contribution",
+    "cumulative_transaction_cost",
+    "cumulative_net_contribution",
+    "annualised_long_contribution",
+    "annualised_short_contribution",
+    "annualised_gross_contribution",
+    "annualised_cost_drag",
+    "annualised_net_contribution",
+    "average_daily_turnover",
+    "average_rebalance_turnover",
+)
+
+SECURITY_CONTRIBUTION_SOURCE_COLUMNS = (
+    "date",
+    "portfolio",
+    "ticker",
+    "weight",
+    "long_contribution",
+    "short_contribution",
+    "gross_contribution",
+    "transaction_cost_contribution",
+    "net_contribution",
+)
+
+SECURITY_CONTRIBUTION_SUMMARY_COLUMNS = (
+    "portfolio",
+    "ticker",
+    "observations",
+    "active_days",
+    "start_date",
+    "end_date",
+    "cumulative_long_contribution",
+    "cumulative_short_contribution",
+    "cumulative_gross_contribution",
+    "cumulative_transaction_cost",
+    "cumulative_net_contribution",
+    "absolute_gross_contribution",
+    "absolute_contribution_share",
 )
 
 
@@ -931,6 +1010,368 @@ def prepare_monitoring_overview(
     )
 
     return prepared.loc[:, MONITORING_OVERVIEW_COLUMNS].reset_index(drop=True)
+
+
+def prepare_portfolio_attribution_history(
+    portfolio_daily: pd.DataFrame,
+    *,
+    portfolios: Sequence[str] | None = None,
+    start_date: Any | None = None,
+    end_date: Any | None = None,
+    tolerance: float = DEFAULT_NUMERICAL_TOLERANCE,
+) -> pd.DataFrame:
+    """Prepare additive side/cost attribution for a dashboard date window."""
+    try:
+        tolerance = float(tolerance)
+    except (TypeError, ValueError) as error:
+        raise ValueError("tolerance must be finite and non-negative.") from error
+
+    if not np.isfinite(tolerance) or tolerance < 0.0:
+        raise ValueError("tolerance must be finite and non-negative.")
+
+    _require_columns(
+        portfolio_daily,
+        set(PORTFOLIO_ATTRIBUTION_SOURCE_COLUMNS),
+        name="portfolio_daily",
+    )
+    portfolio_order = _resolve_portfolios(
+        portfolio_daily,
+        portfolios,
+        name="portfolio_daily",
+    )
+    prepared = portfolio_daily.loc[
+        portfolio_daily["portfolio"].isin(portfolio_order),
+        PORTFOLIO_ATTRIBUTION_SOURCE_COLUMNS,
+    ].copy()
+    prepared["date"] = pd.to_datetime(
+        prepared["date"],
+        errors="coerce",
+    )
+
+    if prepared["date"].isna().any():
+        raise ValueError("portfolio_daily.date contains invalid dates.")
+
+    if prepared.duplicated(["portfolio", "date"]).any():
+        raise ValueError("portfolio_daily contains duplicate portfolio-date rows.")
+
+    if (
+        not pd.api.types.is_bool_dtype(prepared["is_rebalance"])
+        or prepared["is_rebalance"].isna().any()
+    ):
+        raise ValueError(
+            "portfolio_daily.is_rebalance must contain " "non-missing Boolean values."
+        )
+
+    numeric_columns = [
+        column
+        for column in PORTFOLIO_ATTRIBUTION_SOURCE_COLUMNS
+        if column not in {"date", "portfolio", "is_rebalance"}
+    ]
+
+    for column in numeric_columns:
+        numeric_values = pd.to_numeric(
+            prepared[column],
+            errors="coerce",
+        )
+        invalid_values = prepared[column].notna() & numeric_values.isna()
+
+        if (
+            invalid_values.any()
+            or numeric_values.isna().any()
+            or not np.isfinite(numeric_values.to_numpy()).all()
+        ):
+            raise ValueError(f"portfolio_daily.{column} contains invalid values.")
+
+        prepared[column] = numeric_values
+
+    prepared = _filter_dashboard_dates(
+        prepared,
+        name="portfolio-attribution",
+        start_date=start_date,
+        end_date=end_date,
+    )
+    remaining_portfolios = set(prepared["portfolio"])
+    missing_after_filter = [
+        portfolio
+        for portfolio in portfolio_order
+        if portfolio not in remaining_portfolios
+    ]
+
+    if missing_after_filter:
+        raise ValueError(
+            "No portfolio-attribution observations remain "
+            f"for portfolios: {missing_after_filter}"
+        )
+
+    prepared = _sort_portfolios(prepared, portfolio_order)
+
+    side_difference = (
+        prepared["long_return"] + prepared["short_return"] - prepared["gross_return"]
+    ).abs()
+    cost_difference = (
+        prepared["gross_return"] - prepared["transaction_cost"] - prepared["net_return"]
+    ).abs()
+
+    if side_difference.gt(tolerance).any():
+        raise ValueError("portfolio_daily side attribution does not reconcile.")
+
+    if cost_difference.gt(tolerance).any():
+        raise ValueError("portfolio_daily cost attribution does not reconcile.")
+
+    prepared["cost_contribution"] = -prepared["transaction_cost"]
+    cumulative_sources = {
+        "long_return": "cumulative_long_contribution",
+        "short_return": "cumulative_short_contribution",
+        "gross_return": "cumulative_gross_contribution",
+        "cost_contribution": "cumulative_cost_contribution",
+        "net_return": "cumulative_net_contribution",
+    }
+
+    for source, destination in cumulative_sources.items():
+        prepared[destination] = prepared.groupby(
+            "portfolio",
+            sort=False,
+        )[source].cumsum()
+
+    return prepared.loc[
+        :,
+        PORTFOLIO_ATTRIBUTION_HISTORY_COLUMNS,
+    ]
+
+
+def build_side_cost_attribution_summary(
+    portfolio_daily: pd.DataFrame,
+    *,
+    portfolios: Sequence[str] | None = None,
+    start_date: Any | None = None,
+    end_date: Any | None = None,
+    periods_per_year: int = TRADING_DAYS_PER_YEAR,
+    tolerance: float = DEFAULT_NUMERICAL_TOLERANCE,
+) -> pd.DataFrame:
+    """Summarise additive long, short, cost, and net contributions."""
+    if (
+        isinstance(periods_per_year, bool)
+        or not isinstance(periods_per_year, int)
+        or periods_per_year <= 0
+    ):
+        raise ValueError("periods_per_year must be a positive integer.")
+
+    history = prepare_portfolio_attribution_history(
+        portfolio_daily,
+        portfolios=portfolios,
+        start_date=start_date,
+        end_date=end_date,
+        tolerance=tolerance,
+    )
+    rows = []
+
+    for portfolio, data in history.groupby(
+        "portfolio",
+        sort=False,
+    ):
+        rebalance_data = data.loc[data["is_rebalance"]]
+
+        rows.append(
+            {
+                "portfolio": portfolio,
+                "observations": len(data),
+                "rebalance_count": len(rebalance_data),
+                "start_date": data["date"].min(),
+                "end_date": data["date"].max(),
+                "cumulative_long_contribution": (data["long_return"].sum()),
+                "cumulative_short_contribution": (data["short_return"].sum()),
+                "cumulative_gross_contribution": (data["gross_return"].sum()),
+                "cumulative_transaction_cost": (data["transaction_cost"].sum()),
+                "cumulative_net_contribution": (data["net_return"].sum()),
+                "annualised_long_contribution": (
+                    data["long_return"].mean() * periods_per_year
+                ),
+                "annualised_short_contribution": (
+                    data["short_return"].mean() * periods_per_year
+                ),
+                "annualised_gross_contribution": (
+                    data["gross_return"].mean() * periods_per_year
+                ),
+                "annualised_cost_drag": (
+                    data["transaction_cost"].mean() * periods_per_year
+                ),
+                "annualised_net_contribution": (
+                    data["net_return"].mean() * periods_per_year
+                ),
+                "average_daily_turnover": (data["turnover"].mean()),
+                "average_rebalance_turnover": (rebalance_data["turnover"].mean()),
+            }
+        )
+
+    return pd.DataFrame(rows).loc[
+        :,
+        SIDE_COST_ATTRIBUTION_SUMMARY_COLUMNS,
+    ]
+
+
+def build_security_contribution_summary(
+    security_daily: pd.DataFrame,
+    portfolio: str,
+    *,
+    start_date: Any | None = None,
+    end_date: Any | None = None,
+    tolerance: float = DEFAULT_NUMERICAL_TOLERANCE,
+) -> pd.DataFrame:
+    """Aggregate security-level return and cost contributions."""
+    if not isinstance(portfolio, str) or not portfolio:
+        raise ValueError("portfolio must be a non-empty string.")
+
+    try:
+        tolerance = float(tolerance)
+    except (TypeError, ValueError) as error:
+        raise ValueError("tolerance must be finite and non-negative.") from error
+
+    if not np.isfinite(tolerance) or tolerance < 0.0:
+        raise ValueError("tolerance must be finite and non-negative.")
+
+    _require_columns(
+        security_daily,
+        set(SECURITY_CONTRIBUTION_SOURCE_COLUMNS),
+        name="security_daily",
+    )
+
+    if portfolio not in set(security_daily["portfolio"].dropna()):
+        raise ValueError(f"security_daily is missing portfolio: {portfolio}")
+
+    prepared = security_daily.loc[
+        security_daily["portfolio"].eq(portfolio),
+        SECURITY_CONTRIBUTION_SOURCE_COLUMNS,
+    ].copy()
+    prepared["date"] = pd.to_datetime(
+        prepared["date"],
+        errors="coerce",
+    )
+
+    if prepared["date"].isna().any():
+        raise ValueError("security_daily.date contains invalid dates.")
+
+    if prepared[["portfolio", "ticker"]].isna().any().any():
+        raise ValueError("security_daily contains missing key values.")
+
+    if prepared.duplicated(["portfolio", "date", "ticker"]).any():
+        raise ValueError(
+            "security_daily contains duplicate " "portfolio-date-ticker rows."
+        )
+
+    numeric_columns = [
+        column
+        for column in SECURITY_CONTRIBUTION_SOURCE_COLUMNS
+        if column
+        not in {
+            "date",
+            "portfolio",
+            "ticker",
+        }
+    ]
+
+    for column in numeric_columns:
+        numeric_values = pd.to_numeric(
+            prepared[column],
+            errors="coerce",
+        )
+
+        if (
+            numeric_values.isna().any()
+            or not np.isfinite(numeric_values.astype(float).to_numpy()).all()
+        ):
+            raise ValueError(f"security_daily.{column} " "contains invalid values.")
+
+        prepared[column] = numeric_values
+
+    prepared = _filter_dashboard_dates(
+        prepared,
+        name="security-attribution",
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    side_difference = (
+        prepared["long_contribution"]
+        + prepared["short_contribution"]
+        - prepared["gross_contribution"]
+    ).abs()
+    cost_difference = (
+        prepared["gross_contribution"]
+        - prepared["transaction_cost_contribution"]
+        - prepared["net_contribution"]
+    ).abs()
+
+    if side_difference.gt(tolerance).any():
+        raise ValueError("security_daily side contributions " "do not reconcile.")
+
+    if cost_difference.gt(tolerance).any():
+        raise ValueError("security_daily cost contributions " "do not reconcile.")
+
+    if prepared["transaction_cost_contribution"].lt(-tolerance).any():
+        raise ValueError("security_daily transaction costs " "must be non-negative.")
+
+    prepared["active_position"] = prepared["weight"].abs().gt(tolerance)
+    prepared["absolute_gross_contribution"] = prepared["gross_contribution"].abs()
+
+    summary = prepared.groupby(
+        ["portfolio", "ticker"],
+        sort=False,
+        observed=True,
+        as_index=False,
+    ).agg(
+        observations=("date", "size"),
+        active_days=("active_position", "sum"),
+        start_date=("date", "min"),
+        end_date=("date", "max"),
+        cumulative_long_contribution=(
+            "long_contribution",
+            "sum",
+        ),
+        cumulative_short_contribution=(
+            "short_contribution",
+            "sum",
+        ),
+        cumulative_gross_contribution=(
+            "gross_contribution",
+            "sum",
+        ),
+        cumulative_transaction_cost=(
+            "transaction_cost_contribution",
+            "sum",
+        ),
+        cumulative_net_contribution=(
+            "net_contribution",
+            "sum",
+        ),
+        absolute_gross_contribution=(
+            "absolute_gross_contribution",
+            "sum",
+        ),
+    )
+
+    absolute_total = summary["absolute_gross_contribution"].sum()
+
+    summary["absolute_contribution_share"] = (
+        summary["absolute_gross_contribution"] / absolute_total
+        if absolute_total > tolerance
+        else 0.0
+    )
+
+    return (
+        summary.sort_values(
+            [
+                "absolute_gross_contribution",
+                "ticker",
+            ],
+            ascending=[False, True],
+            kind="stable",
+        )
+        .loc[
+            :,
+            SECURITY_CONTRIBUTION_SUMMARY_COLUMNS,
+        ]
+        .reset_index(drop=True)
+    )
 
 
 def prepare_signal_health_history(
