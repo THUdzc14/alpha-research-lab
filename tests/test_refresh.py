@@ -17,6 +17,7 @@ from alpha_research.refresh import (
 from alpha_research.workflows import (
     ATTRIBUTION_DATASET_NAMES,
     MONITORING_DATASET_NAMES,
+    build_strategy_monitoring_datasets,
 )
 
 
@@ -59,9 +60,7 @@ def refresh_inputs():
                     "forward_ret_1d": asset_return,
                     "forward_ret_5d": score / 1_000.0,
                     "beta_126": 0.8 + ticker_number / 100.0,
-                    "sector": (
-                        "Technology" if ticker_number % 2 == 0 else "Financials"
-                    ),
+                    "sector": ("Technology" if ticker_number % 2 == 0 else "Financials"),
                     "dollar_volume": (1_000_000.0 + ticker_number * 10_000.0),
                 }
             )
@@ -97,9 +96,7 @@ def test_complete_refresh_aligns_active_strategies_and_benchmark(
 
     benchmark_dates = pd.DatetimeIndex(attribution["benchmark_daily"]["date"])
 
-    expected_dates = pd.DatetimeIndex(
-        refresh_inputs["benchmark_prices"]["date"].iloc[:-1]
-    )
+    expected_dates = pd.DatetimeIndex(refresh_inputs["benchmark_prices"]["date"].iloc[:-1])
 
     expected_dates = expected_dates[expected_dates >= STRATEGY_EVALUATION_START_DATE]
 
@@ -118,6 +115,30 @@ def test_complete_refresh_outputs_pass_artifact_validation(
 ):
     validate_attribution_artifacts(refreshed_datasets["attribution"])
     validate_monitoring_artifacts(refreshed_datasets["monitoring"])
+
+
+def test_complete_refresh_monitoring_matches_standalone_workflow(
+    refresh_inputs,
+    refreshed_datasets,
+):
+    attribution = refreshed_datasets["attribution"]
+    standalone = build_strategy_monitoring_datasets(
+        factor_panel=refresh_inputs["factor_panel"],
+        selected_implementations=attribution["selected_implementations"],
+        portfolio_daily=attribution["portfolio_daily"],
+        security_holdings=attribution["security_holdings"],
+        security_daily=attribution["security_daily"],
+        benchmark_daily=attribution["benchmark_daily"],
+    )
+
+    assert tuple(standalone) == MONITORING_DATASET_NAMES
+
+    for name in MONITORING_DATASET_NAMES:
+        pd.testing.assert_frame_equal(
+            standalone[name],
+            refreshed_datasets["monitoring"][name],
+            check_exact=True,
+        )
 
 
 def test_complete_refresh_rejects_duplicate_benchmark_dates(refresh_inputs):

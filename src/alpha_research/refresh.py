@@ -52,13 +52,12 @@ def _prepare_refresh_benchmark(
     benchmark_prices: pd.DataFrame,
     benchmark_name: str,
 ) -> pd.DataFrame:
+    """Prepare one forward-return benchmark series for refresh alignment."""
     required_columns = {"date", "adj_close"}
     missing_columns = required_columns - set(benchmark_prices.columns)
 
     if missing_columns:
-        raise KeyError(
-            "benchmark_prices is missing columns: " f"{sorted(missing_columns)}"
-        )
+        raise KeyError(f"benchmark_prices is missing columns: {sorted(missing_columns)}")
 
     prepared = benchmark_prices.copy()
 
@@ -66,13 +65,10 @@ def _prepare_refresh_benchmark(
         available_tickers = set(prepared["ticker"].dropna().astype(str))
 
         if benchmark_name in available_tickers:
-            prepared = prepared.loc[
-                prepared["ticker"].astype(str).eq(benchmark_name)
-            ].copy()
+            prepared = prepared.loc[prepared["ticker"].astype(str).eq(benchmark_name)].copy()
         elif len(available_tickers) != 1:
             raise ValueError(
-                "benchmark_prices contains multiple tickers and does not "
-                f"contain {benchmark_name}."
+                f"benchmark_prices contains multiple tickers and does not contain {benchmark_name}."
             )
 
     prepared["date"] = pd.to_datetime(prepared["date"], errors="raise")
@@ -98,6 +94,7 @@ def _derive_analysis_dates(
     target_weights_by_portfolio: dict[str, pd.DataFrame],
     benchmark_daily: pd.DataFrame,
 ) -> pd.DatetimeIndex:
+    """Return common active dates without moving the frozen evaluation start."""
     return_panel = factor_panel[["date", "ticker", BACKTEST_RETURN_COLUMN]].copy()
     common_dates = pd.DatetimeIndex(benchmark_daily["date"].unique()).sort_values()
     active_start_dates = []
@@ -110,9 +107,7 @@ def _derive_analysis_dates(
             transaction_cost_bps=0.0,
         )
         daily["date"] = pd.to_datetime(daily["date"], errors="raise")
-        active_daily = daily.loc[
-            daily["gross_exposure"].gt(DEFAULT_NUMERICAL_TOLERANCE)
-        ]
+        active_daily = daily.loc[daily["gross_exposure"].gt(DEFAULT_NUMERICAL_TOLERANCE)]
 
         if active_daily.empty:
             raise ValueError(f"{portfolio} never becomes economically active.")
@@ -120,10 +115,8 @@ def _derive_analysis_dates(
         active_start_dates.append(active_daily["date"].min())
         common_dates = common_dates.intersection(pd.DatetimeIndex(daily["date"]))
 
-    # Preserve the evaluation window frozen by
-    # Notebook 04. Newly refreshed data may extend
-    # the end date but must not move the start date.
-    # common_start = max(active_start_dates)
+    # Newly refreshed data may extend the end date but must not move the
+    # evaluation start frozen by Notebook 04.
     common_start = max(
         max(active_start_dates),
         STRATEGY_EVALUATION_START_DATE,
@@ -132,8 +125,7 @@ def _derive_analysis_dates(
 
     if analysis_dates.empty:
         raise ValueError(
-            "No common dates remain after aligning active strategies and "
-            "the benchmark."
+            "No common dates remain after aligning active strategies and the benchmark."
         )
 
     return analysis_dates
@@ -156,9 +148,7 @@ def build_complete_research_refresh(
         target_weights_by_portfolio,
         complete_benchmark,
     )
-    benchmark_daily = complete_benchmark.loc[
-        complete_benchmark["date"].isin(analysis_dates)
-    ].copy()
+    benchmark_daily = complete_benchmark.loc[complete_benchmark["date"].isin(analysis_dates)].copy()
     return_panel = factor_panel[["date", "ticker", BACKTEST_RETURN_COLUMN]].copy()
     attribution = build_selected_attribution_datasets(
         return_panel=return_panel,

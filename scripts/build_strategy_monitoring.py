@@ -1,5 +1,9 @@
 """Rebuild validated monitoring artifacts for the frozen strategies."""
 
+from pathlib import Path
+
+import pandas as pd
+
 from alpha_research.artifacts import write_monitoring_artifacts
 from alpha_research.config.paths import (
     MONITORING_DATA_DIR,
@@ -18,17 +22,24 @@ INPUT_FILENAMES = {
 }
 
 
-def main() -> None:
+def rebuild_monitoring_artifacts(
+    processed_directory: Path = PROCESSED_DATA_DIR,
+    monitoring_directory: Path = MONITORING_DATA_DIR,
+) -> pd.DataFrame:
+    """Load frozen inputs, rebuild monitoring datasets, and persist them."""
     inputs = {
-        name: load_parquet(PROCESSED_DATA_DIR / filename)
+        name: load_parquet(processed_directory / filename)
         for name, filename in INPUT_FILENAMES.items()
     }
     datasets = build_strategy_monitoring_datasets(**inputs)
-    manifest = write_monitoring_artifacts(
+    return write_monitoring_artifacts(
         datasets,
-        MONITORING_DATA_DIR,
+        monitoring_directory,
     )
 
+
+def main() -> None:
+    manifest = rebuild_monitoring_artifacts()
     print(manifest.to_string(index=False))
     print(f"\nMonitoring artifacts written to: {MONITORING_DATA_DIR}")
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pandas as pd
@@ -84,26 +84,23 @@ def _compare_with_existing_artifacts(
     return pd.DataFrame(audit_rows)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Rebuild frozen attribution and monitoring outputs."
-    )
-    parser.add_argument(
-        "--write",
-        action="store_true",
-        help="Write refreshed artifacts; otherwise compare in memory only.",
-    )
-    args = parser.parse_args()
-
-    mode = "write" if args.write else "dry run"
+def run_strategy_refresh(
+    *,
+    write: bool = False,
+    processed_directory: Path = PROCESSED_DATA_DIR,
+    raw_directory: Path = RAW_DATA_DIR,
+    monitoring_directory: Path = MONITORING_DATA_DIR,
+) -> None:
+    """Run the validated refresh in dry-run or explicit write mode."""
+    mode = "write" if write else "dry run"
 
     print(
         f"[1/6] Loading input datasets ({mode})...",
         flush=True,
     )
 
-    factor_panel = load_parquet(PROCESSED_DATA_DIR / "factor_panel.parquet")
-    benchmark_prices = load_parquet(RAW_DATA_DIR / "spy_benchmark.parquet")
+    factor_panel = load_parquet(processed_directory / "factor_panel.parquet")
+    benchmark_prices = load_parquet(raw_directory / "spy_benchmark.parquet")
 
     print(
         f"      Loaded {len(factor_panel):,} factor-panel rows and "
@@ -139,7 +136,7 @@ def main() -> None:
         flush=True,
     )
 
-    if not args.write:
+    if not write:
         print(
             "[4/6] Comparing attribution artifacts...",
             flush=True,
@@ -148,7 +145,7 @@ def main() -> None:
         attribution_audit = _compare_with_existing_artifacts(
             refreshed["attribution"],
             ATTRIBUTION_ARTIFACT_CONTRACTS,
-            PROCESSED_DATA_DIR,
+            processed_directory,
             group="attribution",
         )
 
@@ -160,7 +157,7 @@ def main() -> None:
         monitoring_audit = _compare_with_existing_artifacts(
             refreshed["monitoring"],
             MONITORING_ARTIFACT_CONTRACTS,
-            MONITORING_DATA_DIR,
+            monitoring_directory,
             group="monitoring",
         )
 
@@ -178,7 +175,7 @@ def main() -> None:
         )
 
         print(audit.to_string(index=False))
-        print("\nAll refresh reconciliations pass: " f"{audit['audit_passes'].all()}")
+        print(f"\nAll refresh reconciliations pass: {audit['audit_passes'].all()}")
 
         if not audit["audit_passes"].all():
             raise ValueError("Research refresh reconciliation failed.")
@@ -193,7 +190,7 @@ def main() -> None:
 
     attribution_manifest = write_attribution_artifacts(
         refreshed["attribution"],
-        PROCESSED_DATA_DIR,
+        processed_directory,
     )
 
     print(
@@ -208,7 +205,7 @@ def main() -> None:
 
     monitoring_manifest = write_monitoring_artifacts(
         refreshed["monitoring"],
-        MONITORING_DATA_DIR,
+        monitoring_directory,
     )
 
     print(
@@ -228,6 +225,20 @@ def main() -> None:
     print(monitoring_manifest.to_string(index=False))
 
     print("\nAll strategy outputs were refreshed successfully.")
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Rebuild frozen attribution and monitoring outputs."
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Write refreshed artifacts; otherwise compare in memory only.",
+    )
+    args = parser.parse_args(argv)
+
+    run_strategy_refresh(write=args.write)
 
 
 if __name__ == "__main__":
