@@ -2,8 +2,10 @@
 
 An end-to-end research framework for constructing, testing, combining, attributing and monitoring systematic equity factors.
 
-> **Project status:** the core research workflow is complete.  
-> The next stage is to extract reusable analytics into `src/alpha_research/` and build a Streamlit research and monitoring dashboard.
+> **Project status:** the historical research workflow, reproducible artifact
+> refresh, reusable analytics layer and six-page Streamlit dashboard are
+> complete. The remaining work focuses on documentation, presentation and a
+> final repository-wide consistency review.
 
 The project follows a deliberately layered workflow:
 
@@ -229,6 +231,56 @@ The selected portfolios are long/short by capital construction, but they are not
 
 ---
 
+## Research and monitoring dashboard
+
+The completed Streamlit dashboard consumes validated research artifacts rather
+than notebook state. It contains six pages:
+
+| Page | Purpose |
+|---|---|
+| Strategy Overview | Latest portfolio and factor statuses, active diagnostics and implementation roles |
+| Performance & Drawdowns | Period performance, indexed wealth, drawdowns, rolling Sharpe and volatility |
+| Factor & Signal Health | Coverage, predictive IC, rank stability and cross-factor dependence |
+| Risk & Concentration | Holdings-implied beta, realised beta and position, sector and contribution concentration |
+| Implementation & Liquidity | Turnover, trade size, capacity, missing-return exposure and liquidity coverage |
+| Attribution | Long/short and transaction-cost attribution together with security-level contributions |
+
+Shared sidebar controls provide:
+
+- independent starting- and ending-date selectors;
+- multi-portfolio filtering;
+- a fixed set of retained strategy implementations; and
+- explicit validation of invalid or empty selections.
+
+The dashboard distinguishes structural readiness from data freshness. Missing,
+unreadable or contract-invalid artifacts stop execution with explanatory
+metadata. Stale but structurally valid artifacts remain available and are
+identified with a warning.
+
+The current saved artifacts represent the frozen July 2026 research snapshot.
+Their stale status therefore reflects elapsed calendar time rather than an
+artifact failure.
+
+---
+
+## Dashboard preview
+
+### Strategy overview
+
+![Strategy overview dashboard](docs/images/dashboard_strategy_overview.png)
+
+### Performance and drawdowns
+
+![Performance and drawdowns dashboard](docs/images/dashboard_performance.png)
+
+### Attribution
+
+![Attribution dashboard](docs/images/dashboard_attribution.png)
+
+Detailed operating and reproduction instructions are available in the [dashboard and reproducibility guide](docs/dashboard_guide.md).
+
+---
+
 ## Notebook workflow
 
 | Notebook | Purpose |
@@ -250,10 +302,13 @@ The selected portfolios are long/short by capital construction, but they are not
 ```text
 alpha-research-lab/
 ├── dashboard/
+│   ├── dashboard_pages.py
 │   └── streamlit_app.py
 ├── data/
 │   ├── raw/
-│   └── processed/
+│   ├── processed/
+│   │   └── monitoring/
+│   └── sample/
 ├── docs/
 │   ├── methodology.md
 │   └── progress_report.md
@@ -272,30 +327,36 @@ alpha-research-lab/
 │   ├── download_data.py
 │   ├── build_processed_panel.py
 │   ├── build_factor_panel.py
-│   └── run_factor_backtests.py
+│   ├── run_factor_backtests.py
+│   └── refresh_strategy_outputs.py
 ├── src/
 │   └── alpha_research/
 │       ├── config/
+│       ├── artifacts.py
+│       ├── attribution.py
 │       ├── backtest.py
 │       ├── costs.py
+│       ├── dashboard_analytics.py
+│       ├── dashboard_data.py
+│       ├── dashboard_ui.py
 │       ├── data_checks.py
 │       ├── data_loader.py
 │       ├── factors.py
 │       ├── metrics.py
 │       ├── monitoring.py
 │       ├── portfolio.py
+│       ├── refresh.py
 │       ├── returns.py
 │       ├── risk.py
 │       ├── signal_processing.py
 │       ├── universe.py
 │       ├── validation.py
-│       └── visualisation.py
+│       ├── visualisation.py
+│       └── workflows.py
 ├── tests/
 ├── pyproject.toml
 └── requirements.txt
 ```
-
-The next engineering stage will move reusable calculations out of notebooks and into the placeholder modules before the dashboard is completed.
 
 ---
 
@@ -315,22 +376,27 @@ Activate it on Windows:
 .venv\Scripts\Activate.ps1
 ```
 
-Install dependencies and the local package:
+Install the dependencies and editable local package:
 
 ```powershell
-pip install -r requirements.txt
-pip install -e .
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
-Run the tests:
+Run the automated checks:
 
 ```powershell
-pytest -v
+python -m pytest
+python -m ruff check src tests scripts dashboard
+python -m compileall -q src dashboard scripts tests
 ```
 
 ---
 
-## Running the data pipeline
+## Reproducing the research artifacts
+
+The source-data preparation sequence is:
 
 ```powershell
 python scripts/download_data.py
@@ -339,7 +405,54 @@ python scripts/build_factor_panel.py
 python scripts/run_factor_backtests.py
 ```
 
-The notebooks currently contain the complete research workflow. Dashboard execution instructions will be added after reusable analytics have been extracted into the package.
+The complete frozen attribution and monitoring outputs can then be reconstructed
+without executing the notebooks.
+
+Run a non-writing reconciliation against the saved artifacts:
+
+```powershell
+python scripts/refresh_strategy_outputs.py
+```
+
+The command rebuilds all 15 dashboard datasets in memory, validates their
+contracts and compares keys, columns and values with the saved Parquet files.
+
+To replace the saved artifacts with a newly validated reconstruction:
+
+```powershell
+python scripts/refresh_strategy_outputs.py --write
+```
+
+The writing mode validates every dataset, writes the artifacts and reads them
+back before reporting success.
+
+The refresh workflow produces:
+
+* 6 attribution datasets;
+* 9 monitoring datasets;
+* cross-artifact identity and accounting validation; and
+* dashboard-facing freshness metadata.
+
+The notebooks remain the full research record, but neither artifact refresh nor
+dashboard execution depends on notebook state.
+
+---
+
+## Running the dashboard
+
+Launch the Streamlit application from the repository root:
+
+```powershell
+streamlit run dashboard/streamlit_app.py
+````
+
+The application loads artifacts in non-strict mode so that missing or invalid
+files can be explained in the interface. Page analytics themselves operate only
+after structural readiness has been established.
+
+A stale-data warning is expected when the current date is materially later than
+the frozen research snapshot. To refresh the snapshot, rerun the validated
+refresh workflow rather than editing dashboard outputs manually.
 
 ---
 
@@ -380,16 +493,19 @@ See [`docs/methodology.md`](docs/methodology.md) for detailed assumptions.
 
 ---
 
-## Next stage
+## Remaining project work
 
-The next stage is an engineering and presentation phase:
+The core implementation is complete. The remaining work is:
 
-1. extract reusable cost, metric, monitoring and visualisation functions from the notebooks;
-2. add unit tests and reconciliation tests for those functions;
-3. define a stable data-access layer for versioned research exports;
-4. build the Streamlit dashboard;
-5. update the README with dashboard instructions and screenshots; and
-6. add a forward or paper-trading workflow without changing the completed historical specification.
+1. complete dashboard and reproducibility documentation;
+2. add selected dashboard screenshots or a short demonstration;
+3. conduct a repository-wide consistency and readability review;
+4. rerun the complete functional and reproducibility QA gates;
+5. prepare the public GitHub and job-portfolio presentation; and
+6. optionally design a forward or paper-trading extension without changing the
+   frozen historical specification.
+
+Cloud deployment is optional and is not required for the core project.
 
 ---
 
@@ -397,6 +513,7 @@ The next stage is an engineering and presentation phase:
 
 - [`docs/methodology.md`](docs/methodology.md)
 - [`docs/progress_report.md`](docs/progress_report.md)
+- [`docs/dashboard_guide.md`](docs/dashboard_guide.md)
 
 ---
 

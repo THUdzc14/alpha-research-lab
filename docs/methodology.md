@@ -725,7 +725,128 @@ Beta-targeted and sector-constrained variants are therefore deferred to a separa
 
 ---
 
-## 17. Main limitations
+## 17. Reusable analytics, artifact validation, and dashboard
+
+### 17.1 Separation of research and presentation
+
+The research notebooks preserve the chronological modelling process, including exploratory analysis, rejected alternatives, implementation selection, and diagnostic investigation.
+
+The final monitoring and presentation layer does not depend on live notebook state. Reusable calculations are implemented under `src/alpha_research/`, while the Streamlit application under `dashboard/` consumes validated Parquet artifacts.
+
+This separation ensures that the dashboard is a presentation and monitoring layer over the completed methodology rather than an independent source of calculations.
+
+### 17.2 Artifact reconstruction
+
+The reproducible refresh workflow is exposed through:
+
+```text
+scripts/refresh_strategy_outputs.py
+```
+
+It reconstructs 15 datasets:
+
+* six attribution datasets;
+* nine monitoring datasets.
+
+The workflow can be run in dry-run mode to compare reconstructed data with the stored reference artifacts without modifying any files. Write mode persists the reconstructed artifacts and then reads them back for an additional validation pass.
+
+The reconciliation checks cover:
+
+* column sets;
+* primary keys;
+* row counts;
+* date coverage;
+* numerical values;
+* cross-dataset consistency.
+
+The final dry-run reconciliation passed for all 15 datasets. Floating-point comparisons use tight numerical tolerances so that material differences cannot be hidden by the audit.
+
+### 17.3 Artifact contracts
+
+Each dashboard artifact has an explicit contract covering its required columns, key structure, data types, and basic validity conditions.
+
+The loader distinguishes between:
+
+* an individually valid artifact;
+* a valid group of mutually consistent artifacts;
+* structural readiness of the complete dashboard bundle;
+* freshness of the observations.
+
+Missing, unreadable, individually invalid, or group-inconsistent artifacts are treated as structural failures. Stale artifacts remain loadable but are reported explicitly.
+
+### 17.4 Temporal and as-of-date semantics
+
+Historical panels use inclusive start and end dates selected by the user.
+
+Latest-state summaries and filtered histories are intentionally distinguished. For example, a factor's latest signal observation can be later than the final date of the selected portfolio history.
+
+Predictive statistics such as the information coefficient can also have an earlier valid date than the latest signal observation because forward-return calculation requires future data. The dashboard therefore retains explicit fields such as:
+
+* `ic_as_of_date`;
+* `rolling_mean_ic_252_as_of_date`.
+
+This prevents a predictive statistic from being incorrectly labelled with a later signal date.
+
+### 17.5 Readiness and freshness
+
+Structural readiness answers whether the complete artifact bundle can be used safely by the dashboard.
+
+Freshness answers whether the latest observations are sufficiently recent relative to the current business date.
+
+A stale artifact does not automatically imply a methodological or structural failure. This distinction is important because the repository contains a frozen historical research snapshot rather than a live production feed.
+
+The dashboard can therefore be structurally ready while simultaneously reporting stale data.
+
+### 17.6 Dashboard analytics and figures
+
+Dashboard tables are derived through reusable functions in:
+
+```text
+src/alpha_research/dashboard_analytics.py
+```
+
+Plotly figures are constructed in:
+
+```text
+src/alpha_research/visualisation.py
+```
+
+The Streamlit page functions in `dashboard/dashboard_pages.py` are responsible for layout and presentation rather than reproducing the underlying research calculations.
+
+The six dashboard pages cover:
+
+1. strategy overview and diagnostic status;
+2. performance and drawdowns;
+3. factor and signal health;
+4. risk and concentration;
+5. implementation and liquidity;
+6. portfolio-side and security-level attribution.
+
+### 17.7 Quality assurance
+
+The reusable analytics and dashboard layer were checked through:
+
+* unit tests for valid and malformed inputs;
+* duplicate-key rejection;
+* missing-column rejection;
+* non-numeric-value rejection;
+* empty and disjoint filtered states;
+* invalid date-range handling;
+* page-level notebook reconciliation cells;
+* Plotly trace and figure audits;
+* full artifact reconstruction;
+* artifact read-back validation;
+* Ruff linting;
+* Python compilation;
+* Streamlit manual interface testing.
+
+The final dry-run reconstruction matched every stored artifact on columns, keys, row counts, and values.
+
+The dashboard therefore reports the same research results as the validated artifact pipeline while remaining independent of interactive notebook execution.
+
+---
+
+## 18. Main limitations
 
 1. Present-day constituent survivorship bias.
 2. No point-in-time sector classifications.

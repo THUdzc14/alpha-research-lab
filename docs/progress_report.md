@@ -347,6 +347,63 @@ The decision remains qualified by:
 
 ---
 
+## Milestone 11 — Reusable engineering and artifact refresh
+
+The completed research logic was moved into reusable, tested modules under `src/alpha_research/`.
+
+The engineering layer now provides:
+
+- explicit artifact contracts and validation;
+- portfolio, security, attribution, risk, signal, implementation, and liquidity analytics;
+- deterministic reconstruction of six attribution datasets and nine monitoring datasets;
+- dry-run comparison of reconstructed and stored artifacts;
+- optional artifact writing followed by read-back validation;
+- dashboard loading with separate structural-readiness and freshness checks.
+
+The complete refresh workflow is exposed through `scripts/refresh_strategy_outputs.py`.
+
+All 15 dashboard artifacts reconcile on columns, keys, values, and row counts against the stored research outputs.
+
+---
+
+## Milestone 12 — Streamlit dashboard and final quality assurance
+
+A six-page Streamlit research dashboard was completed under `dashboard/`.
+
+The application includes:
+
+1. Strategy Overview;
+2. Performance & Drawdowns;
+3. Factor & Signal Health;
+4. Risk & Concentration;
+5. Implementation & Liquidity;
+6. Attribution.
+
+The interface provides portfolio selection, independent start and end dates, freshness reporting, status diagnostics, summary tables, and Plotly figures.
+
+Page-level notebook reconciliation cells were used to verify:
+
+- performance and drawdown histories;
+- factor predictive as-of dates;
+- signal and dependence measures;
+- beta and concentration measures;
+- implementation and liquidity measures;
+- portfolio-side and security-level attribution;
+- status aggregation and diagnostic figures.
+
+Final quality assurance included:
+
+- the complete pytest suite;
+- Ruff linting;
+- Python compilation;
+- `git diff --check`;
+- full 15-dataset dry-run reconstruction;
+- Streamlit navigation, filter, empty-state, and invalid-range checks.
+
+All automated checks and artifact reconciliations passed.
+
+---
+
 ## Main research lessons
 
 ### 1. Signal and portfolio quality are different
@@ -399,43 +456,30 @@ The project has therefore identified a coherent historical research specificatio
 
 ## Current project status
 
-The research notebooks now provide:
+The core project implementation is complete.
 
-- reconciled data inputs;
-- validated factors;
-- standalone and multi-factor backtests;
-- optimisation diagnostics;
-- frequency, cost and capacity robustness;
-- performance and risk attribution;
-- monitoring flags;
-- a final strategy hierarchy;
-- limitations; and
-- an evidence-backed claims register.
+The repository now contains:
 
-The core research stage is complete.
+- the original research notebooks and empirical record;
+- a tested reusable Python package;
+- deterministic artifact refresh and validation;
+- 15 validated dashboard datasets;
+- a complete six-page Streamlit dashboard;
+- final automated and manual quality-assurance coverage.
+
+The project is now in its documentation, consistency-review, and portfolio-presentation stage.
 
 ---
 
-## Next engineering stage
+## Remaining project work
 
-The next stage will convert notebook logic into reusable package components.
+The research implementation, dashboard, quality assurance, and supporting documentation are now complete.
 
-Priority modules include:
+The remaining planned work is:
 
-- `costs.py` for transaction-cost and turnover calculations;
-- `metrics.py` for return, risk and drawdown summaries;
-- `monitoring.py` for diagnostic calibration and status aggregation; and
-- `visualisation.py` for consistent dashboard-ready charts.
+1. conduct an in-place repository review for consistency and readability;
+2. rerun the complete quality-assurance sequence after any cleanup;
+3. prepare the final public-repository presentation;
+4. update the CV project description and interview narrative.
 
-The engineering sequence should be:
-
-1. inventory repeated notebook functions;
-2. define stable public APIs and schemas;
-3. extract one analytical layer at a time;
-4. add unit and reconciliation tests;
-5. rerun notebooks against the package functions;
-6. create a versioned data-access layer;
-7. build the Streamlit dashboard; and
-8. add dashboard documentation and screenshots.
-
-A forward or paper-trading workflow should follow without altering the completed historical strategy specification.
+Possible later extensions include forward or walk-forward evaluation, alternative datasets, scheduled refreshes, and deployment. These are optional extensions rather than requirements for the completed project.

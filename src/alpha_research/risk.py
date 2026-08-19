@@ -335,8 +335,6 @@ def calculate_rolling_stock_beta(
 
     merged = merged.sort_values(["ticker", "date"]).reset_index(drop=True)
 
-    grouped = merged.groupby("ticker", group_keys=False)
-
     def _stock_beta(group: pd.DataFrame) -> pd.Series:
         covariance = (
             group[stock_return_column]

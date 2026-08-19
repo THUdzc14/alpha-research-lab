@@ -8,6 +8,15 @@ from alpha_research.dashboard_ui import (
     prepare_dashboard_freshness_table,
 )
 
+EXPECTED_DASHBOARD_PAGES = (
+    "Strategy Overview",
+    "Performance & Drawdowns",
+    "Factor & Signal Health",
+    "Risk & Concentration",
+    "Implementation & Liquidity",
+    "Attribution",
+)
+
 
 def test_filter_options_preserve_order_and_window():
     selected = pd.DataFrame(
@@ -59,7 +68,7 @@ def test_filter_options_preserve_order_and_window():
     )
     assert result.minimum_date == pd.Timestamp("2020-01-02")
     assert result.maximum_date == pd.Timestamp("2020-01-06")
-    assert len(DASHBOARD_PAGES) == 6
+    assert DASHBOARD_PAGES == EXPECTED_DASHBOARD_PAGES
 
 
 def test_filter_options_reject_bad_portfolios():
@@ -184,3 +193,55 @@ def test_freshness_table_rejects_invalid_inputs():
             metadata,
             stale_only=1,
         )
+
+
+def test_filter_options_reject_empty_and_invalid_inputs():
+    performance = pd.DataFrame(
+        {
+            "portfolio": ["Alpha"],
+            "date": [pd.Timestamp("2020-01-02")],
+        }
+    )
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        build_dashboard_filter_options(
+            pd.DataFrame({"portfolio": []}),
+            performance,
+        )
+
+    with pytest.raises(ValueError, match="missing portfolios"):
+        build_dashboard_filter_options(
+            pd.DataFrame({"portfolio": [None]}),
+            performance,
+        )
+
+    invalid_dates = performance.assign(date="invalid")
+
+    with pytest.raises(ValueError, match="invalid dates"):
+        build_dashboard_filter_options(
+            pd.DataFrame({"portfolio": ["Alpha"]}),
+            invalid_dates,
+        )
+
+
+def test_filter_options_reject_duplicate_dates_and_disjoint_coverage():
+    selected = pd.DataFrame({"portfolio": ["Alpha", "Beta"]})
+    duplicated = pd.DataFrame(
+        {
+            "portfolio": ["Alpha", "Alpha", "Beta"],
+            "date": pd.to_datetime(["2020-01-02", "2020-01-02", "2020-01-03"]),
+        }
+    )
+
+    with pytest.raises(ValueError, match="duplicate portfolio-date"):
+        build_dashboard_filter_options(selected, duplicated)
+
+    disjoint = pd.DataFrame(
+        {
+            "portfolio": ["Alpha", "Beta"],
+            "date": pd.to_datetime(["2020-01-02", "2020-01-03"]),
+        }
+    )
+
+    with pytest.raises(ValueError, match="no common dated coverage"):
+        build_dashboard_filter_options(selected, disjoint)

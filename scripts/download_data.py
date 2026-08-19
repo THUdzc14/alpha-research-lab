@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
@@ -58,7 +57,9 @@ def _normalise_yfinance_output(data: pd.DataFrame, tickers: list[str]) -> pd.Dat
     return data
 
 
-def download_prices(tickers: list[str], start: str, end: str | None = None) -> pd.DataFrame:
+def download_prices(
+    tickers: list[str], start: str, end: str | None = None
+) -> pd.DataFrame:
     raw = yf.download(
         tickers=tickers,
         start=start,
