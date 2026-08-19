@@ -513,7 +513,7 @@ def calculate_inverse_volatility_allocations(
         or allocation_floor > 1.0 / sleeve_count
     ):
         raise ValueError(
-            "allocation_floor must be between zero and " "1 / number of sleeves."
+            "allocation_floor must be between zero and 1 / number of sleeves."
         )
 
     if not math.isfinite(volatility_floor) or volatility_floor <= 0.0:
@@ -569,7 +569,7 @@ def combine_dynamic_sleeve_target_weights(
         raise ValueError("sleeve_allocations contains duplicate dates.")
 
     if set(allocations.columns) != set(sleeve_targets):
-        raise ValueError("Allocation columns and sleeve target names " "must match.")
+        raise ValueError("Allocation columns and sleeve target names must match.")
 
     allocations = allocations.apply(
         pd.to_numeric,
@@ -613,7 +613,7 @@ def combine_dynamic_sleeve_target_weights(
         )
 
         if frame[["date", "ticker"]].duplicated().any():
-            raise ValueError(f"{sleeve_name} contains duplicate " "date/ticker rows.")
+            raise ValueError(f"{sleeve_name} contains duplicate date/ticker rows.")
 
         if (
             frame["weight"].isna().any()

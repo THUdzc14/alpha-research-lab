@@ -176,7 +176,7 @@ def build_frozen_strategy_target_weights(
         or fixed_config.rebalance_offset != inverse_volatility_config.rebalance_offset
     ):
         raise ValueError(
-            "The retained sleeve strategies must " "share a rebalance schedule."
+            "The retained sleeve strategies must share a rebalance schedule."
         )
 
     required_columns = {
@@ -192,7 +192,7 @@ def build_frozen_strategy_target_weights(
         raise KeyError("factor_panel is missing columns: " f"{sorted(missing_columns)}")
 
     if factor_panel[["date", "ticker"]].duplicated().any():
-        raise ValueError("factor_panel contains duplicate " "date-ticker rows.")
+        raise ValueError("factor_panel contains duplicate date-ticker rows.")
 
     composite_panel = factor_panel.copy()
 
@@ -283,7 +283,7 @@ def build_frozen_strategy_target_weights(
     }
 
     if tuple(result) != portfolios:
-        raise RuntimeError("Frozen strategy targets have an " "invalid portfolio set.")
+        raise RuntimeError("Frozen strategy targets have an invalid portfolio set.")
 
     return result
 
@@ -307,7 +307,7 @@ def build_selected_attribution_datasets(
 
     if set(target_weights_by_portfolio) != set(portfolios):
         raise ValueError(
-            "target_weights_by_portfolio does not " "match the frozen portfolio set."
+            "target_weights_by_portfolio does not match the frozen portfolio set."
         )
 
     dates = pd.DatetimeIndex(pd.to_datetime(pd.Series(analysis_dates).dropna()))
@@ -361,12 +361,12 @@ def build_selected_attribution_datasets(
     benchmark_names = prepared_benchmark["benchmark"].drop_duplicates()
 
     if len(benchmark_names) != 1:
-        raise ValueError("benchmark_daily must contain exactly " "one benchmark.")
+        raise ValueError("benchmark_daily must contain exactly one benchmark.")
 
     benchmark_dates = pd.DatetimeIndex(prepared_benchmark["date"]).sort_values()
 
     if not benchmark_dates.equals(dates):
-        raise ValueError("benchmark_daily dates do not match " "analysis_dates.")
+        raise ValueError("benchmark_daily dates do not match analysis_dates.")
 
     implementation_lookup = {
         specification.portfolio: specification
@@ -428,9 +428,7 @@ def build_selected_attribution_datasets(
         portfolio_dates = pd.DatetimeIndex(daily["date"])
 
         if not portfolio_dates.equals(dates):
-            raise ValueError(
-                f"{portfolio} backtest dates do " "not match analysis_dates."
-            )
+            raise ValueError(f"{portfolio} backtest dates do not match analysis_dates.")
 
         metadata = {
             "portfolio": portfolio,
@@ -498,7 +496,7 @@ def build_selected_attribution_datasets(
     )
 
     if not attribution_audit["audit_passes"].all():
-        raise ValueError("Security-level attribution " "reconciliation failed.")
+        raise ValueError("Security-level attribution reconciliation failed.")
 
     result = {
         "selected_implementations": (selected_implementations.copy()),
@@ -510,7 +508,7 @@ def build_selected_attribution_datasets(
     }
 
     if tuple(result) != ATTRIBUTION_DATASET_NAMES:
-        raise RuntimeError("Attribution workflow returned an " "invalid dataset set.")
+        raise RuntimeError("Attribution workflow returned an invalid dataset set.")
 
     return result
 

@@ -935,10 +935,10 @@ def prepare_monitoring_overview(
         invalid_values = prepared[column].notna() & numeric_values.isna()
 
         if invalid_values.any() or numeric_values.isna().any():
-            raise ValueError(f"latest_overview.{column} " "contains invalid counts.")
+            raise ValueError(f"latest_overview.{column} contains invalid counts.")
 
         if numeric_values.lt(0).any() or numeric_values.mod(1).ne(0).any():
-            raise ValueError(f"latest_overview.{column} " "contains invalid counts.")
+            raise ValueError(f"latest_overview.{column} contains invalid counts.")
 
         prepared[column] = numeric_values.astype(int)
 
@@ -952,7 +952,7 @@ def prepare_monitoring_overview(
     ].sum(axis=1)
 
     if not component_counts.eq(prepared["diagnostics"]).all():
-        raise ValueError("latest_overview diagnostic counts " "do not reconcile.")
+        raise ValueError("latest_overview diagnostic counts do not reconcile.")
 
     allowed_statuses = set(STATUS_SEVERITY)
     unknown_overall = sorted(
@@ -974,7 +974,7 @@ def prepare_monitoring_overview(
     expected_overall.loc[prepared["breaches"].gt(0)] = "BREACH"
 
     if not prepared["overall_status"].eq(expected_overall).all():
-        raise ValueError("latest_overview overall statuses " "do not reconcile.")
+        raise ValueError("latest_overview overall statuses do not reconcile.")
 
     allowed_category_statuses = {
         *allowed_statuses,
@@ -1059,7 +1059,7 @@ def prepare_portfolio_attribution_history(
         or prepared["is_rebalance"].isna().any()
     ):
         raise ValueError(
-            "portfolio_daily.is_rebalance must contain " "non-missing Boolean values."
+            "portfolio_daily.is_rebalance must contain non-missing Boolean values."
         )
 
     numeric_columns = [
@@ -1255,7 +1255,7 @@ def build_security_contribution_summary(
 
     if prepared.duplicated(["portfolio", "date", "ticker"]).any():
         raise ValueError(
-            "security_daily contains duplicate " "portfolio-date-ticker rows."
+            "security_daily contains duplicate portfolio-date-ticker rows."
         )
 
     numeric_columns = [
@@ -1279,7 +1279,7 @@ def build_security_contribution_summary(
             numeric_values.isna().any()
             or not np.isfinite(numeric_values.astype(float).to_numpy()).all()
         ):
-            raise ValueError(f"security_daily.{column} " "contains invalid values.")
+            raise ValueError(f"security_daily.{column} contains invalid values.")
 
         prepared[column] = numeric_values
 
@@ -1302,13 +1302,13 @@ def build_security_contribution_summary(
     ).abs()
 
     if side_difference.gt(tolerance).any():
-        raise ValueError("security_daily side contributions " "do not reconcile.")
+        raise ValueError("security_daily side contributions do not reconcile.")
 
     if cost_difference.gt(tolerance).any():
-        raise ValueError("security_daily cost contributions " "do not reconcile.")
+        raise ValueError("security_daily cost contributions do not reconcile.")
 
     if prepared["transaction_cost_contribution"].lt(-tolerance).any():
-        raise ValueError("security_daily transaction costs " "must be non-negative.")
+        raise ValueError("security_daily transaction costs must be non-negative.")
 
     prepared["active_position"] = prepared["weight"].abs().gt(tolerance)
     prepared["absolute_gross_contribution"] = prepared["gross_contribution"].abs()

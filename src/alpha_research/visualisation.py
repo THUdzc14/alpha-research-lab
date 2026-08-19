@@ -899,9 +899,7 @@ def build_diagnostic_count_figure(
             or values.lt(0).any()
             or values.mod(1).ne(0).any()
         ):
-            raise ValueError(
-                f"monitoring_overview.{column} " "contains invalid counts."
-            )
+            raise ValueError(f"monitoring_overview.{column} contains invalid counts.")
 
         figure.add_trace(
             go.Bar(
@@ -1151,7 +1149,7 @@ def _validate_security_contribution_summary(
     portfolios = security_summary["portfolio"].dropna().unique()
 
     if len(portfolios) != 1:
-        raise ValueError("security_summary must contain " "exactly one portfolio.")
+        raise ValueError("security_summary must contain exactly one portfolio.")
 
     prepared = security_summary.copy()
 
@@ -1166,13 +1164,13 @@ def _validate_security_contribution_summary(
         )
 
         if prepared[column].isna().any():
-            raise ValueError(f"security_summary.{column} " "contains invalid values.")
+            raise ValueError(f"security_summary.{column} contains invalid values.")
 
     if prepared["absolute_gross_contribution"].lt(0.0).any():
-        raise ValueError("absolute_gross_contribution " "must be non-negative.")
+        raise ValueError("absolute_gross_contribution must be non-negative.")
 
     if prepared["absolute_contribution_share"].lt(0.0).any():
-        raise ValueError("absolute_contribution_share " "must be non-negative.")
+        raise ValueError("absolute_contribution_share must be non-negative.")
 
     return prepared
 
@@ -1335,7 +1333,7 @@ def build_security_contribution_share_figure(
     figure.update_layout(
         title={
             "text": (
-                "Largest Absolute Security " "Contribution Shares" f" — {portfolio}"
+                "Largest Absolute Security Contribution Shares" f" — {portfolio}"
                 if title is None
                 else title
             ),

@@ -989,7 +989,7 @@ def calculate_performance_risk_state(
             "date",
         ]
     ).any():
-        raise ValueError("portfolio_daily contains duplicate " "portfolio-date rows.")
+        raise ValueError("portfolio_daily contains duplicate portfolio-date rows.")
 
     selected_portfolios = selected_portfolios.rename(
         columns={
@@ -1137,7 +1137,7 @@ def calculate_implementation_monitoring_state(
         ]
     ).any():
         raise ValueError(
-            "security_daily contains duplicate " "portfolio-date-ticker rows."
+            "security_daily contains duplicate portfolio-date-ticker rows."
         )
 
     numeric_columns = [
@@ -1154,23 +1154,23 @@ def calculate_implementation_monitoring_state(
         )
 
     if security[numeric_columns].isna().any().any():
-        raise ValueError("Security implementation columns contain " "missing values.")
+        raise ValueError("Security implementation columns contain missing values.")
 
     trade_weight_difference = (
         security["absolute_trade_weight"] - security["trade"].abs()
     ).abs()
 
     if trade_weight_difference.gt(tolerance).any():
-        raise ValueError("absolute_trade_weight does not reconcile " "with abs(trade).")
+        raise ValueError("absolute_trade_weight does not reconcile with abs(trade).")
 
     if security["absolute_trade_weight"].lt(-tolerance).any():
         raise ValueError("absolute_trade_weight must be non-negative.")
 
     if security["transaction_cost_contribution"].lt(-tolerance).any():
-        raise ValueError("transaction_cost_contribution must be " "non-negative.")
+        raise ValueError("transaction_cost_contribution must be non-negative.")
 
     if security["missing_return_weight_contribution"].lt(-tolerance).any():
-        raise ValueError("missing_return_weight_contribution must be " "non-negative.")
+        raise ValueError("missing_return_weight_contribution must be non-negative.")
 
     liquidity_column = f"lagged_median_dollar_volume_{liquidity_window}"
 

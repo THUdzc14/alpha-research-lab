@@ -460,13 +460,13 @@ def validate_attribution_artifacts(
 
         if not observed_specifications.equals(expected_specifications):
             raise ValueError(
-                f"{name} specifications do not " "match selected_implementations."
+                f"{name} specifications do not match selected_implementations."
             )
 
     benchmark_names = prepared["benchmark_daily"]["benchmark"].drop_duplicates()
 
     if len(benchmark_names) != 1:
-        raise ValueError("benchmark_daily must contain exactly " "one benchmark.")
+        raise ValueError("benchmark_daily must contain exactly one benchmark.")
 
     if prepared["benchmark_daily"]["benchmark_return"].isna().any():
         raise ValueError("benchmark_daily contains missing returns.")
@@ -517,7 +517,7 @@ def validate_attribution_artifacts(
     ) in accounting_columns.items():
         if difference.abs().max() >= tolerance:
             raise ValueError(
-                "portfolio_daily " f"{identity_name} identity does " "not reconcile."
+                "portfolio_daily " f"{identity_name} identity does not reconcile."
             )
 
     for portfolio in portfolios:
@@ -530,7 +530,7 @@ def validate_attribution_artifacts(
         portfolio_dates = pd.DatetimeIndex(portfolio_data["date"])
 
         if not portfolio_dates.equals(benchmark_dates):
-            raise ValueError(f"{portfolio} dates do not " "match benchmark_daily.")
+            raise ValueError(f"{portfolio} dates do not match benchmark_daily.")
 
         expected_cost_bps = transaction_cost_lookup[portfolio]
 
@@ -558,7 +558,7 @@ def validate_attribution_artifacts(
         )
 
         if gross_difference >= tolerance or net_difference >= tolerance:
-            raise ValueError(f"{portfolio} cumulative returns " "do not reconcile.")
+            raise ValueError(f"{portfolio} cumulative returns do not reconcile.")
 
     attribution_audit = reconcile_security_attribution(
         portfolio_daily,
@@ -567,7 +567,7 @@ def validate_attribution_artifacts(
     )
 
     if not attribution_audit["audit_passes"].all():
-        raise ValueError("Security-level attribution does " "not reconcile.")
+        raise ValueError("Security-level attribution does not reconcile.")
 
 
 def write_attribution_artifacts(
