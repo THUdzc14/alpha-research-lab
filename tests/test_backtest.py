@@ -1,3 +1,5 @@
+from inspect import signature
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -6,6 +8,7 @@ from alpha_research.backtest import (
     BacktestConfig,
     calculate_turnover,
     construct_long_short_weights,
+    prepare_backtest_panel,
     get_rebalance_dates,
     run_long_short_backtest,
     summarise_backtest,
@@ -15,6 +18,50 @@ from alpha_research.backtest import (
     drift_weights,
     run_target_weight_backtest,
 )
+from alpha_research.config.research import (
+    BACKTEST_RETURN_COLUMN,
+    BASELINE_TRANSACTION_COST_BPS,
+    PORTFOLIO_LONG_GROSS,
+    PORTFOLIO_LONG_QUANTILE,
+    PORTFOLIO_MINIMUM_OBSERVATIONS,
+    PORTFOLIO_QUANTILES,
+    PORTFOLIO_SHORT_GROSS,
+    PORTFOLIO_SHORT_QUANTILE,
+)
+
+
+def test_public_backtest_defaults_match_frozen_research_configuration():
+    config = BacktestConfig()
+
+    assert config.quantiles == PORTFOLIO_QUANTILES
+    assert config.long_quantile == PORTFOLIO_LONG_QUANTILE
+    assert config.short_quantile == PORTFOLIO_SHORT_QUANTILE
+    assert config.long_gross == PORTFOLIO_LONG_GROSS
+    assert config.short_gross == PORTFOLIO_SHORT_GROSS
+    assert config.transaction_cost_bps == BASELINE_TRANSACTION_COST_BPS
+    assert config.min_observations == PORTFOLIO_MINIMUM_OBSERVATIONS
+
+    weight_parameters = signature(construct_long_short_weights).parameters
+    assert weight_parameters["quantiles"].default == PORTFOLIO_QUANTILES
+    assert weight_parameters["long_quantile"].default == PORTFOLIO_LONG_QUANTILE
+    assert weight_parameters["short_quantile"].default == PORTFOLIO_SHORT_QUANTILE
+    assert weight_parameters["long_gross"].default == PORTFOLIO_LONG_GROSS
+    assert weight_parameters["short_gross"].default == PORTFOLIO_SHORT_GROSS
+    assert weight_parameters["min_observations"].default == PORTFOLIO_MINIMUM_OBSERVATIONS
+
+    for backtest_function in (
+        prepare_backtest_panel,
+        run_long_short_backtest,
+        run_rebalance_offset_backtests,
+    ):
+        assert (
+            signature(backtest_function).parameters["return_column"].default
+            == BACKTEST_RETURN_COLUMN
+        )
+
+    target_parameters = signature(run_target_weight_backtest).parameters
+    assert target_parameters["return_column"].default == BACKTEST_RETURN_COLUMN
+    assert target_parameters["transaction_cost_bps"].default == BASELINE_TRANSACTION_COST_BPS
 
 
 def make_cross_section() -> pd.DataFrame:
@@ -159,9 +206,7 @@ def test_transaction_cost_is_deducted_on_rebalance():
     assert first_day["turnover"] == pytest.approx(2.0)
     assert first_day["transaction_cost"] == pytest.approx(expected_cost)
 
-    assert first_day["net_return"] == pytest.approx(
-        first_day["gross_return"] - expected_cost
-    )
+    assert first_day["net_return"] == pytest.approx(first_day["gross_return"] - expected_cost)
 
 
 def test_weights_remain_constant_between_rebalances():
@@ -179,13 +224,13 @@ def test_weights_remain_constant_between_rebalances():
         config=config,
     )
 
-    day_1 = holdings.loc[holdings["date"] == holdings["date"].unique()[0]].set_index(
-        "ticker"
-    )["weight"]
+    day_1 = holdings.loc[holdings["date"] == holdings["date"].unique()[0]].set_index("ticker")[
+        "weight"
+    ]
 
-    day_2 = holdings.loc[holdings["date"] == holdings["date"].unique()[1]].set_index(
-        "ticker"
-    )["weight"]
+    day_2 = holdings.loc[holdings["date"] == holdings["date"].unique()[1]].set_index("ticker")[
+        "weight"
+    ]
 
     pd.testing.assert_series_equal(
         day_1,
@@ -386,9 +431,7 @@ def test_target_weight_backtest_drifts_between_rebalances():
 
     assert second_day["turnover"] == pytest.approx(0.0)
 
-    expected_rebalance_turnover = abs(0.5 - 0.5 * 1.10 / 1.05) + abs(
-        -0.5 - (-0.5 / 1.05)
-    )
+    expected_rebalance_turnover = abs(0.5 - 0.5 * 1.10 / 1.05) + abs(-0.5 - (-0.5 / 1.05))
 
     assert third_day["turnover"] == pytest.approx(expected_rebalance_turnover)
 

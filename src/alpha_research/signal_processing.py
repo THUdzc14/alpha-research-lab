@@ -1,14 +1,21 @@
+"""Cross-sectional clipping, standardisation, ranking, and neutralisation."""
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
+from alpha_research.config.research import (
+    FACTOR_WINSOR_LOWER_QUANTILE,
+    FACTOR_WINSOR_UPPER_QUANTILE,
+)
+
 
 def winsorise_cross_section(
     panel: pd.DataFrame,
     column: str,
-    lower_quantile: float = 0.01,
-    upper_quantile: float = 0.99,
+    lower_quantile: float = FACTOR_WINSOR_LOWER_QUANTILE,
+    upper_quantile: float = FACTOR_WINSOR_UPPER_QUANTILE,
 ) -> pd.Series:
     """Winsorise one factor independently on each date.
 
@@ -83,8 +90,8 @@ def process_factor(
     panel: pd.DataFrame,
     raw_column: str,
     output_prefix: str,
-    lower_quantile: float = 0.01,
-    upper_quantile: float = 0.99,
+    lower_quantile: float = FACTOR_WINSOR_LOWER_QUANTILE,
+    upper_quantile: float = FACTOR_WINSOR_UPPER_QUANTILE,
 ) -> pd.DataFrame:
     """Add winsorised, z-score and percentile-rank versions of one factor."""
     df = panel.copy()
@@ -116,8 +123,8 @@ def process_factor(
 def process_factor_columns(
     panel: pd.DataFrame,
     factor_map: dict[str, str],
-    lower_quantile: float = 0.01,
-    upper_quantile: float = 0.99,
+    lower_quantile: float = FACTOR_WINSOR_LOWER_QUANTILE,
+    upper_quantile: float = FACTOR_WINSOR_UPPER_QUANTILE,
 ) -> pd.DataFrame:
     """Process multiple raw factors.
 

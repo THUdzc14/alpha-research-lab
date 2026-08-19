@@ -1,3 +1,5 @@
+"""Predictive factor validation and retained-signal monitoring histories."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -510,9 +512,7 @@ def calculate_rank_stability(
     factor_name: str,
     score_column: str,
     lags: Sequence[int] = MONITORING_SPECIFICATION.signal_stability_lags,
-    min_observations: int = (
-        MONITORING_SPECIFICATION.minimum_cross_sectional_observations
-    ),
+    min_observations: int = (MONITORING_SPECIFICATION.minimum_cross_sectional_observations),
 ) -> pd.DataFrame:
     """Calculate cross-sectional score-rank correlations with prior dates."""
     if not factor_name:
@@ -544,9 +544,7 @@ def calculate_rank_stability(
 
     for lag in lags:
         lagged_scores = score_matrix.shift(lag)
-        overlapping_observations = (score_matrix.notna() & lagged_scores.notna()).sum(
-            axis=1
-        )
+        overlapping_observations = (score_matrix.notna() & lagged_scores.notna()).sum(axis=1)
         rank_correlation = score_matrix.corrwith(
             lagged_scores,
             axis=1,
@@ -554,9 +552,7 @@ def calculate_rank_stability(
         ).where(overlapping_observations >= min_observations)
 
         stability[f"rank_stability_{lag}d"] = rank_correlation.to_numpy()
-        stability[f"rank_stability_{lag}d_observations"] = (
-            overlapping_observations.to_numpy()
-        )
+        stability[f"rank_stability_{lag}d_observations"] = overlapping_observations.to_numpy()
 
     stability["factor"] = factor_name
 
@@ -566,9 +562,7 @@ def calculate_rank_stability(
 def calculate_factor_dependence(
     panel: pd.DataFrame,
     factor_columns: Sequence[str],
-    min_observations: int = (
-        MONITORING_SPECIFICATION.minimum_cross_sectional_observations
-    ),
+    min_observations: int = (MONITORING_SPECIFICATION.minimum_cross_sectional_observations),
     window: int = MONITORING_SPECIFICATION.signal_window,
     rolling_min_periods: int = MONITORING_SPECIFICATION.signal_min_periods,
 ) -> pd.DataFrame:
@@ -632,9 +626,7 @@ def calculate_factor_signal_health(
     score_column: str,
     raw_column: str,
     forward_return_column: str,
-    min_observations: int = (
-        MONITORING_SPECIFICATION.minimum_cross_sectional_observations
-    ),
+    min_observations: int = (MONITORING_SPECIFICATION.minimum_cross_sectional_observations),
     window: int = MONITORING_SPECIFICATION.signal_window,
     rolling_min_periods: int = MONITORING_SPECIFICATION.signal_min_periods,
     stability_lags: Sequence[int] = (MONITORING_SPECIFICATION.signal_stability_lags),
@@ -739,9 +731,7 @@ def calculate_factor_signal_health(
     )
 
     if result["ic_observation_difference"].abs().max() != 0:
-        raise ValueError(
-            "Signal evaluation and IC observation counts do not reconcile."
-        )
+        raise ValueError("Signal evaluation and IC observation counts do not reconcile.")
 
     trailing_iqr_column = f"trailing_raw_iqr_median_{window}"
     result[trailing_iqr_column] = (
@@ -753,9 +743,7 @@ def calculate_factor_signal_health(
         )
         .median()
     )
-    result["raw_iqr_relative_to_trailing_median"] = (
-        result["raw_iqr"] / result[trailing_iqr_column]
-    )
+    result["raw_iqr_relative_to_trailing_median"] = result["raw_iqr"] / result[trailing_iqr_column]
 
     return result
 
@@ -765,9 +753,7 @@ def calculate_signal_health(
     factor_columns: Mapping[str, str],
     raw_factor_columns: Mapping[str, str],
     forward_return_column: str,
-    min_observations: int = (
-        MONITORING_SPECIFICATION.minimum_cross_sectional_observations
-    ),
+    min_observations: int = (MONITORING_SPECIFICATION.minimum_cross_sectional_observations),
     window: int = MONITORING_SPECIFICATION.signal_window,
     rolling_min_periods: int = MONITORING_SPECIFICATION.signal_min_periods,
     stability_lags: Sequence[int] = (MONITORING_SPECIFICATION.signal_stability_lags),
@@ -777,9 +763,7 @@ def calculate_signal_health(
         raise ValueError("factor_columns is empty.")
 
     if set(factor_columns) != set(raw_factor_columns):
-        raise ValueError(
-            "factor_columns and raw_factor_columns must have identical keys."
-        )
+        raise ValueError("factor_columns and raw_factor_columns must have identical keys.")
 
     results = [
         calculate_factor_signal_health(
@@ -797,7 +781,5 @@ def calculate_signal_health(
     ]
 
     return (
-        pd.concat(results, ignore_index=True)
-        .sort_values(["factor", "date"])
-        .reset_index(drop=True)
+        pd.concat(results, ignore_index=True).sort_values(["factor", "date"]).reset_index(drop=True)
     )

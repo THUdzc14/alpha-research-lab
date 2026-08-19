@@ -1,10 +1,19 @@
+from inspect import signature
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from alpha_research.backtest import BacktestConfig
+from alpha_research.config.research import (
+    BACKTEST_RETURN_COLUMN,
+    INVERSE_VOLATILITY_LOOKBACK,
+    INVERSE_VOLATILITY_MIN_PERIODS,
+    TRADING_DAYS_PER_YEAR,
+)
 from alpha_research.portfolio import (
     build_factor_target_weights,
+    calculate_rebalance_inverse_volatility_allocations,
     combine_sleeve_target_weights,
     combine_factor_scores,
     rescale_target_weights_to_gross,
@@ -12,6 +21,20 @@ from alpha_research.portfolio import (
     calculate_inverse_volatility_allocations,
     combine_dynamic_sleeve_target_weights,
 )
+
+
+def test_portfolio_defaults_match_frozen_research_configuration():
+    target_parameters = signature(build_factor_target_weights).parameters
+    assert target_parameters["return_column"].default == BACKTEST_RETURN_COLUMN
+
+    for allocation_function in (
+        estimate_trailing_sleeve_volatility,
+        calculate_rebalance_inverse_volatility_allocations,
+    ):
+        parameters = signature(allocation_function).parameters
+        assert parameters["lookback"].default == INVERSE_VOLATILITY_LOOKBACK
+        assert parameters["min_periods"].default == INVERSE_VOLATILITY_MIN_PERIODS
+        assert parameters["periods_per_year"].default == TRADING_DAYS_PER_YEAR
 
 
 def make_portfolio_panel() -> pd.DataFrame:
@@ -321,9 +344,7 @@ def test_rescale_target_weights_reaches_requested_gross():
         target_gross=2.0,
     )
 
-    gross_exposure = result.groupby("date")["weight"].agg(
-        lambda weights: weights.abs().sum()
-    )
+    gross_exposure = result.groupby("date")["weight"].agg(lambda weights: weights.abs().sum())
 
     assert np.allclose(gross_exposure, 2.0)
 
@@ -368,9 +389,7 @@ def test_rescale_target_weights_accepts_date_specific_gross():
         target_gross=gross_schedule,
     )
 
-    gross_exposure = result.groupby("date")["weight"].agg(
-        lambda weights: weights.abs().sum()
-    )
+    gross_exposure = result.groupby("date")["weight"].agg(lambda weights: weights.abs().sum())
 
     assert gross_exposure.loc[dates[0]] == pytest.approx(2.0)
     assert gross_exposure.loc[dates[1]] == pytest.approx(0.0)
@@ -512,9 +531,7 @@ def test_combine_dynamic_sleeves_applies_date_allocations():
 
     first_weights = result.loc[result["date"] == dates[0]].set_index("ticker")["weight"]
 
-    second_weights = result.loc[result["date"] == dates[1]].set_index("ticker")[
-        "weight"
-    ]
+    second_weights = result.loc[result["date"] == dates[1]].set_index("ticker")["weight"]
 
     assert first_weights["A"] == pytest.approx(0.25)
     assert first_weights["B"] == pytest.approx(0.50)

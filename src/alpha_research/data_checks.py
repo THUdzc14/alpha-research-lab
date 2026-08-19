@@ -1,3 +1,9 @@
+"""Descriptive data-quality checks for the raw equity and benchmark panels.
+
+These helpers report suspicious observations without silently removing them;
+the research notebooks retain responsibility for interpreting each diagnostic.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +17,8 @@ REQUIRED_OHLCV_COLUMNS = ["date", "ticker", *PRICE_COLUMNS, "volume"]
 
 @dataclass(frozen=True)
 class DataQualityConfig:
+    """Thresholds used by the descriptive data-quality report."""
+
     extreme_return_threshold: float = 0.25
     extreme_gap_threshold: float = 0.15
     min_history_days: int = 252
@@ -115,9 +123,7 @@ def missing_tickers_by_date(prices: pd.DataFrame) -> pd.DataFrame:
     df = prepare_ohlcv(prices)
     total_tickers = df["ticker"].nunique()
 
-    out = (
-        df.groupby("date")["ticker"].nunique().rename("available_tickers").reset_index()
-    )
+    out = df.groupby("date")["ticker"].nunique().rename("available_tickers").reset_index()
     out["total_tickers"] = total_tickers
     out["missing_tickers"] = out["total_tickers"] - out["available_tickers"]
     out["coverage_ratio"] = out["available_tickers"] / out["total_tickers"]

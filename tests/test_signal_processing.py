@@ -1,14 +1,32 @@
+from inspect import signature
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from alpha_research.config.research import (
+    FACTOR_WINSOR_LOWER_QUANTILE,
+    FACTOR_WINSOR_UPPER_QUANTILE,
+)
 from alpha_research.signal_processing import (
     cross_sectional_rank,
     cross_sectional_zscore,
     process_factor,
+    process_factor_columns,
     winsorise_cross_section,
     grouped_zscore,
 )
+
+
+def test_winsorisation_defaults_match_frozen_research_configuration():
+    for processing_function in (
+        winsorise_cross_section,
+        process_factor,
+        process_factor_columns,
+    ):
+        parameters = signature(processing_function).parameters
+        assert parameters["lower_quantile"].default == FACTOR_WINSOR_LOWER_QUANTILE
+        assert parameters["upper_quantile"].default == FACTOR_WINSOR_UPPER_QUANTILE
 
 
 def make_panel() -> pd.DataFrame:

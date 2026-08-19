@@ -1,6 +1,14 @@
+from inspect import signature
+
 import numpy as np
 import pandas as pd
 import pytest
+
+from alpha_research.config.research import (
+    MOMENTUM_LONG_LAG,
+    MOMENTUM_SKIP_LAG,
+    REALISED_VOLATILITY_WINDOW,
+)
 
 from alpha_research.factors import (
     add_raw_factors,
@@ -9,6 +17,20 @@ from alpha_research.factors import (
     realised_volatility,
     reversal_1m,
 )
+
+
+def test_retained_factor_defaults_match_frozen_research_configuration():
+    momentum_parameters = signature(momentum_12_1m).parameters
+    assert momentum_parameters["long_lag"].default == MOMENTUM_LONG_LAG
+    assert momentum_parameters["skip_lag"].default == MOMENTUM_SKIP_LAG
+
+    volatility_parameters = signature(realised_volatility).parameters
+    assert volatility_parameters["window"].default == REALISED_VOLATILITY_WINDOW
+
+    library_parameters = signature(add_raw_factors).parameters
+    assert library_parameters["momentum_12m_lag"].default == MOMENTUM_LONG_LAG
+    assert library_parameters["momentum_skip_lag"].default == MOMENTUM_SKIP_LAG
+    assert library_parameters["volatility_window"].default == REALISED_VOLATILITY_WINDOW
 
 
 def make_constant_growth_panel(

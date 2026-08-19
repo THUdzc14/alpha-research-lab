@@ -1,3 +1,10 @@
+"""Cross-sectional long-short and target-weight backtest engines.
+
+Return columns represent returns realised after each row's observation date.
+The engines keep target construction separate from drift-aware daily accounting
+so the same accounting path can be reused by research and refresh workflows.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,7 +12,17 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from alpha_research.config.research import TRADING_DAYS_PER_YEAR
+from alpha_research.config.research import (
+    BACKTEST_RETURN_COLUMN,
+    BASELINE_TRANSACTION_COST_BPS,
+    PORTFOLIO_LONG_GROSS,
+    PORTFOLIO_LONG_QUANTILE,
+    PORTFOLIO_MINIMUM_OBSERVATIONS,
+    PORTFOLIO_QUANTILES,
+    PORTFOLIO_SHORT_GROSS,
+    PORTFOLIO_SHORT_QUANTILE,
+    TRADING_DAYS_PER_YEAR,
+)
 from alpha_research.costs import calculate_linear_transaction_cost
 from alpha_research.metrics import (
     calculate_drawdown_from_wealth,
@@ -18,13 +35,13 @@ class BacktestConfig:
     """Configuration for a cross-sectional long-short backtest."""
 
     rebalance_frequency: int = 5
-    quantiles: int = 5
-    long_quantile: int = 5
-    short_quantile: int = 1
-    long_gross: float = 1.0
-    short_gross: float = 1.0
-    transaction_cost_bps: float = 10.0
-    min_observations: int = 30
+    quantiles: int = PORTFOLIO_QUANTILES
+    long_quantile: int = PORTFOLIO_LONG_QUANTILE
+    short_quantile: int = PORTFOLIO_SHORT_QUANTILE
+    long_gross: float = PORTFOLIO_LONG_GROSS
+    short_gross: float = PORTFOLIO_SHORT_GROSS
+    transaction_cost_bps: float = BASELINE_TRANSACTION_COST_BPS
+    min_observations: int = PORTFOLIO_MINIMUM_OBSERVATIONS
     rebalance_offset: int = 0
     beta_neutral: bool = False
     beta_column: str = "beta_126"
@@ -34,7 +51,7 @@ class BacktestConfig:
 def prepare_backtest_panel(
     panel: pd.DataFrame,
     factor_column: str,
-    return_column: str = "forward_ret_1d",
+    return_column: str = BACKTEST_RETURN_COLUMN,
     config: BacktestConfig | None = None,
 ) -> pd.DataFrame:
     """Validate and prepare a panel for backtesting."""
@@ -88,12 +105,12 @@ def get_rebalance_dates(
 def construct_long_short_weights(
     cross_section: pd.DataFrame,
     factor_column: str,
-    quantiles: int = 5,
-    long_quantile: int = 5,
-    short_quantile: int = 1,
-    long_gross: float = 1.0,
-    short_gross: float = 1.0,
-    min_observations: int = 30,
+    quantiles: int = PORTFOLIO_QUANTILES,
+    long_quantile: int = PORTFOLIO_LONG_QUANTILE,
+    short_quantile: int = PORTFOLIO_SHORT_QUANTILE,
+    long_gross: float = PORTFOLIO_LONG_GROSS,
+    short_gross: float = PORTFOLIO_SHORT_GROSS,
+    min_observations: int = PORTFOLIO_MINIMUM_OBSERVATIONS,
 ) -> pd.Series:
     """Construct equal-weight long-short weights for one date.
 
@@ -210,9 +227,7 @@ def drift_weights(
     ending_nav = 1.0 + portfolio_return
 
     if ending_nav <= 0:
-        raise ValueError(
-            "Portfolio NAV became non-positive; weights cannot be drifted."
-        )
+        raise ValueError("Portfolio NAV became non-positive; weights cannot be drifted.")
 
     return aligned_weights * (1.0 + aligned_returns) / ending_nav
 
@@ -220,8 +235,8 @@ def drift_weights(
 def run_target_weight_backtest(
     return_panel: pd.DataFrame,
     target_weights: pd.DataFrame,
-    return_column: str = "forward_ret_1d",
-    transaction_cost_bps: float = 10.0,
+    return_column: str = BACKTEST_RETURN_COLUMN,
+    transaction_cost_bps: float = BASELINE_TRANSACTION_COST_BPS,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Backtest dated target weights with drift-aware turnover.
 
@@ -258,17 +273,13 @@ def run_target_weight_backtest(
     missing_return_columns = required_return_columns - set(return_panel.columns)
 
     if missing_return_columns:
-        raise ValueError(
-            f"Missing return-panel columns: {sorted(missing_return_columns)}"
-        )
+        raise ValueError(f"Missing return-panel columns: {sorted(missing_return_columns)}")
 
     required_weight_columns = {"date", "ticker", "weight"}
     missing_weight_columns = required_weight_columns - set(target_weights.columns)
 
     if missing_weight_columns:
-        raise ValueError(
-            f"Missing target-weight columns: {sorted(missing_weight_columns)}"
-        )
+        raise ValueError(f"Missing target-weight columns: {sorted(missing_weight_columns)}")
 
     returns = return_panel[["date", "ticker", return_column]].copy()
     targets = target_weights[["date", "ticker", "weight"]].copy()
@@ -306,15 +317,12 @@ def run_target_weight_backtest(
     returns = returns.loc[returns["date"].isin(valid_return_dates)].copy()
     all_dates = pd.DatetimeIndex(returns["date"].unique()).sort_values()
 
-    invalid_target_dates = pd.DatetimeIndex(targets["date"].unique()).difference(
-        all_dates
-    )
+    invalid_target_dates = pd.DatetimeIndex(targets["date"].unique()).difference(all_dates)
 
     if not invalid_target_dates.empty:
         invalid_dates = invalid_target_dates.strftime("%Y-%m-%d").tolist()
         raise ValueError(
-            "Target-weight dates are absent from the usable return panel: "
-            f"{invalid_dates}"
+            f"Target-weight dates are absent from the usable return panel: {invalid_dates}"
         )
 
     targets_by_date = {
@@ -363,9 +371,7 @@ def run_target_weight_backtest(
 
         aligned_returns = return_by_ticker.reindex(applied_weights.index)
 
-        missing_return_weight = float(
-            applied_weights.loc[aligned_returns.isna()].abs().sum()
-        )
+        missing_return_weight = float(applied_weights.loc[aligned_returns.isna()].abs().sum())
 
         realised_returns = aligned_returns.fillna(0.0)
 
@@ -437,13 +443,9 @@ def run_target_weight_backtest(
 
     daily_results = pd.DataFrame(daily_rows)
 
-    daily_results["gross_cumulative_return"] = (
-        1.0 + daily_results["gross_return"]
-    ).cumprod()
+    daily_results["gross_cumulative_return"] = (1.0 + daily_results["gross_return"]).cumprod()
 
-    daily_results["net_cumulative_return"] = (
-        1.0 + daily_results["net_return"]
-    ).cumprod()
+    daily_results["net_cumulative_return"] = (1.0 + daily_results["net_return"]).cumprod()
 
     holdings = pd.concat(holdings_rows, ignore_index=True)
 
@@ -453,7 +455,7 @@ def run_target_weight_backtest(
 def run_long_short_backtest(
     panel: pd.DataFrame,
     factor_column: str,
-    return_column: str = "forward_ret_1d",
+    return_column: str = BACKTEST_RETURN_COLUMN,
     config: BacktestConfig | None = None,
     benchmark_returns: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -468,9 +470,7 @@ def run_long_short_backtest(
 
     if config.beta_neutral:
         if benchmark_returns is None:
-            raise ValueError(
-                "benchmark_returns is required for beta-neutral backtests."
-            )
+            raise ValueError("benchmark_returns is required for beta-neutral backtests.")
 
         if config.beta_column not in panel.columns:
             raise ValueError(f"Beta column not found: {config.beta_column}")
@@ -483,9 +483,7 @@ def run_long_short_backtest(
         benchmark_missing = benchmark_required - set(benchmark_returns.columns)
 
         if benchmark_missing:
-            raise ValueError(
-                "Missing benchmark columns: " f"{sorted(benchmark_missing)}"
-            )
+            raise ValueError(f"Missing benchmark columns: {sorted(benchmark_missing)}")
 
         benchmark_data = benchmark_returns[["date", "benchmark_return"]].copy()
 
@@ -558,27 +556,21 @@ def run_long_short_backtest(
             )
 
             if config.beta_neutral:
-                beta_by_ticker = cross_section.set_index("ticker")[
-                    config.beta_column
-                ].reindex(target_weights.index)
+                beta_by_ticker = cross_section.set_index("ticker")[config.beta_column].reindex(
+                    target_weights.index
+                )
 
                 valid_beta = beta_by_ticker.notna()
 
-                current_missing_beta_weight = float(
-                    target_weights.loc[~valid_beta].abs().sum()
-                )
+                current_missing_beta_weight = float(target_weights.loc[~valid_beta].abs().sum())
 
                 current_estimated_stock_beta = float(
-                    (
-                        target_weights.loc[valid_beta] * beta_by_ticker.loc[valid_beta]
-                    ).sum()
+                    (target_weights.loc[valid_beta] * beta_by_ticker.loc[valid_beta]).sum()
                 )
 
                 target_benchmark_weight = -current_estimated_stock_beta
 
-                benchmark_turnover = abs(
-                    target_benchmark_weight - current_benchmark_weight
-                )
+                benchmark_turnover = abs(target_benchmark_weight - current_benchmark_weight)
 
                 current_benchmark_weight = target_benchmark_weight
 
@@ -604,9 +596,7 @@ def run_long_short_backtest(
 
         aligned_returns = return_by_ticker.reindex(current_weights.index)
 
-        missing_return_weight = float(
-            current_weights.loc[aligned_returns.isna()].abs().sum()
-        )
+        missing_return_weight = float(current_weights.loc[aligned_returns.isna()].abs().sum())
 
         aligned_returns = aligned_returns.fillna(0.0)
 
@@ -644,9 +634,7 @@ def run_long_short_backtest(
             if pd.isna(benchmark_return):
                 benchmark_hedge_return = 0.0
             else:
-                benchmark_hedge_return = float(
-                    current_benchmark_weight * benchmark_return
-                )
+                benchmark_hedge_return = float(current_benchmark_weight * benchmark_return)
 
         else:
             benchmark_return = np.nan
@@ -708,13 +696,9 @@ def run_long_short_backtest(
 
     daily_results = pd.DataFrame(daily_rows)
 
-    daily_results["gross_cumulative_return"] = (
-        1.0 + daily_results["gross_return"]
-    ).cumprod()
+    daily_results["gross_cumulative_return"] = (1.0 + daily_results["gross_return"]).cumprod()
 
-    daily_results["net_cumulative_return"] = (
-        1.0 + daily_results["net_return"]
-    ).cumprod()
+    daily_results["net_cumulative_return"] = (1.0 + daily_results["net_return"]).cumprod()
 
     holdings = pd.concat(
         holdings_rows,
@@ -763,9 +747,7 @@ def summarise_backtest(
                 "average_daily_turnover": daily_results["turnover"].mean(),
                 "average_rebalance_turnover": rebalance_rows["turnover"].mean(),
                 "total_transaction_cost": daily_results["transaction_cost"].sum(),
-                "maximum_missing_return_weight": daily_results[
-                    "missing_return_weight"
-                ].max(),
+                "maximum_missing_return_weight": daily_results["missing_return_weight"].max(),
             }
         ]
     )
@@ -817,7 +799,7 @@ def summarise_backtest_legs(
 def run_rebalance_offset_backtests(
     panel: pd.DataFrame,
     factor_column: str,
-    return_column: str = "forward_ret_1d",
+    return_column: str = BACKTEST_RETURN_COLUMN,
     base_config: BacktestConfig | None = None,
     benchmark_returns: pd.DataFrame | None = None,
 ) -> pd.DataFrame:

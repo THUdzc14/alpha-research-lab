@@ -1,3 +1,5 @@
+"""Target-weight construction and multi-sleeve portfolio combination."""
+
 from __future__ import annotations
 
 import math
@@ -9,12 +11,18 @@ from alpha_research.backtest import (
     construct_long_short_weights,
     get_rebalance_dates,
 )
+from alpha_research.config.research import (
+    BACKTEST_RETURN_COLUMN,
+    INVERSE_VOLATILITY_LOOKBACK,
+    INVERSE_VOLATILITY_MIN_PERIODS,
+    TRADING_DAYS_PER_YEAR,
+)
 
 
 def build_factor_target_weights(
     panel: pd.DataFrame,
     factor_column: str,
-    return_column: str = "forward_ret_1d",
+    return_column: str = BACKTEST_RETURN_COLUMN,
     config: BacktestConfig | None = None,
 ) -> pd.DataFrame:
     """Build dated long-short target weights from one factor.
@@ -99,9 +107,7 @@ def build_factor_target_weights(
         return pd.DataFrame(columns=["date", "ticker", "weight"])
 
     return (
-        pd.concat(targets, ignore_index=True)
-        .sort_values(["date", "ticker"])
-        .reset_index(drop=True)
+        pd.concat(targets, ignore_index=True).sort_values(["date", "ticker"]).reset_index(drop=True)
     )
 
 
@@ -121,18 +127,11 @@ def combine_sleeve_target_weights(
         raise ValueError("sleeve_targets is empty.")
 
     if set(sleeve_targets) != set(sleeve_allocations):
-        raise ValueError(
-            "sleeve_targets and sleeve_allocations must have identical keys."
-        )
+        raise ValueError("sleeve_targets and sleeve_allocations must have identical keys.")
 
-    allocations = {
-        name: float(allocation) for name, allocation in sleeve_allocations.items()
-    }
+    allocations = {name: float(allocation) for name, allocation in sleeve_allocations.items()}
 
-    if any(
-        not math.isfinite(allocation) or allocation < 0
-        for allocation in allocations.values()
-    ):
+    if any(not math.isfinite(allocation) or allocation < 0 for allocation in allocations.values()):
         raise ValueError("Sleeve allocations must be finite and non-negative.")
 
     if not math.isclose(
@@ -151,9 +150,7 @@ def combine_sleeve_target_weights(
         missing_columns = required_columns - set(targets.columns)
 
         if missing_columns:
-            raise ValueError(
-                f"{sleeve_name} is missing columns: " f"{sorted(missing_columns)}"
-            )
+            raise ValueError(f"{sleeve_name} is missing columns: {sorted(missing_columns)}")
 
         frame = targets[["date", "ticker", "weight"]].copy()
 
@@ -257,9 +254,7 @@ def rescale_target_weights_to_gross(
     missing_columns = required_columns - set(target_weights.columns)
 
     if missing_columns:
-        raise ValueError(
-            f"target_weights is missing columns: {sorted(missing_columns)}"
-        )
+        raise ValueError(f"target_weights is missing columns: {sorted(missing_columns)}")
 
     if tolerance < 0 or not math.isfinite(tolerance):
         raise ValueError("tolerance must be finite and non-negative.")
@@ -312,17 +307,13 @@ def rescale_target_weights_to_gross(
         raise ValueError("Target gross exposures must be finite and non-negative.")
 
     current_gross = (
-        scaled.groupby("date")["weight"]
-        .agg(lambda weights: weights.abs().sum())
-        .reindex(dates)
+        scaled.groupby("date")["weight"].agg(lambda weights: weights.abs().sum()).reindex(dates)
     )
 
     impossible_dates = (current_gross <= tolerance) & (desired_gross > tolerance)
 
     if impossible_dates.any():
-        raise ValueError(
-            "Cannot scale a zero-weight portfolio to positive gross exposure."
-        )
+        raise ValueError("Cannot scale a zero-weight portfolio to positive gross exposure.")
 
     scale_factors = pd.Series(
         0.0,
@@ -343,9 +334,9 @@ def rescale_target_weights_to_gross(
 
 def estimate_trailing_sleeve_volatility(
     sleeve_returns: pd.DataFrame,
-    lookback: int = 63,
-    min_periods: int = 42,
-    periods_per_year: int = 252,
+    lookback: int = INVERSE_VOLATILITY_LOOKBACK,
+    min_periods: int = INVERSE_VOLATILITY_MIN_PERIODS,
+    periods_per_year: int = TRADING_DAYS_PER_YEAR,
 ) -> pd.DataFrame:
     """Estimate trailing sleeve volatility without look-ahead bias.
 
@@ -389,9 +380,9 @@ def estimate_trailing_sleeve_volatility(
 def calculate_rebalance_inverse_volatility_allocations(
     sleeve_returns: pd.DataFrame,
     rebalance_dates: pd.Index,
-    lookback: int = 63,
-    min_periods: int = 42,
-    periods_per_year: int = 252,
+    lookback: int = INVERSE_VOLATILITY_LOOKBACK,
+    min_periods: int = INVERSE_VOLATILITY_MIN_PERIODS,
+    periods_per_year: int = TRADING_DAYS_PER_YEAR,
 ) -> pd.DataFrame:
     """Calculate pure inverse-volatility weights on rebalance dates.
 
@@ -512,9 +503,7 @@ def calculate_inverse_volatility_allocations(
         or allocation_floor < 0.0
         or allocation_floor > 1.0 / sleeve_count
     ):
-        raise ValueError(
-            "allocation_floor must be between zero and 1 / number of sleeves."
-        )
+        raise ValueError("allocation_floor must be between zero and 1 / number of sleeves.")
 
     if not math.isfinite(volatility_floor) or volatility_floor <= 0.0:
         raise ValueError("volatility_floor must be finite and positive.")
@@ -528,9 +517,7 @@ def calculate_inverse_volatility_allocations(
         dtype=float,
     )
 
-    valid_dates = volatility.notna().all(axis=1) & (volatility > volatility_floor).all(
-        axis=1
-    )
+    valid_dates = volatility.notna().all(axis=1) & (volatility > volatility_floor).all(axis=1)
 
     inverse_volatility = 1.0 / volatility.loc[valid_dates].clip(lower=volatility_floor)
 
@@ -599,9 +586,7 @@ def combine_dynamic_sleeve_target_weights(
         missing_columns = required_columns - set(targets.columns)
 
         if missing_columns:
-            raise ValueError(
-                f"{sleeve_name} is missing columns: " f"{sorted(missing_columns)}"
-            )
+            raise ValueError(f"{sleeve_name} is missing columns: {sorted(missing_columns)}")
 
         frame = targets[["date", "ticker", "weight"]].copy()
 
@@ -615,10 +600,7 @@ def combine_dynamic_sleeve_target_weights(
         if frame[["date", "ticker"]].duplicated().any():
             raise ValueError(f"{sleeve_name} contains duplicate date/ticker rows.")
 
-        if (
-            frame["weight"].isna().any()
-            or not np.isfinite(frame["weight"].to_numpy()).all()
-        ):
+        if frame["weight"].isna().any() or not np.isfinite(frame["weight"].to_numpy()).all():
             raise ValueError(f"{sleeve_name} contains invalid weights.")
 
         sleeve_dates = pd.DatetimeIndex(frame["date"].unique()).sort_values()

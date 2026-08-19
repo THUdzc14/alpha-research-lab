@@ -1,3 +1,5 @@
+"""Backward-looking features and forward-return labels for the equity panel."""
+
 from __future__ import annotations
 
 import numpy as np

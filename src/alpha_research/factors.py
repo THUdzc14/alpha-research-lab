@@ -1,10 +1,16 @@
+"""Raw price-based factor construction with explicit lookback semantics."""
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-TRADING_DAYS_PER_YEAR = 252
-TRADING_DAYS_PER_MONTH = 21
+from alpha_research.config.research import (
+    MOMENTUM_LONG_LAG,
+    MOMENTUM_SKIP_LAG,
+    REALISED_VOLATILITY_WINDOW,
+    TRADING_DAYS_PER_YEAR,
+)
 
 
 def _prepare_panel(panel: pd.DataFrame) -> pd.DataFrame:
@@ -38,8 +44,8 @@ def _prepare_panel(panel: pd.DataFrame) -> pd.DataFrame:
 
 def momentum_12_1m(
     panel: pd.DataFrame,
-    long_lag: int = 252,
-    skip_lag: int = 21,
+    long_lag: int = MOMENTUM_LONG_LAG,
+    skip_lag: int = MOMENTUM_SKIP_LAG,
 ) -> pd.Series:
     """Calculate 12-1 month momentum.
 
@@ -119,7 +125,7 @@ def reversal_1m(
 
 def realised_volatility(
     panel: pd.DataFrame,
-    window: int = 63,
+    window: int = REALISED_VOLATILITY_WINDOW,
     annualisation_factor: int = TRADING_DAYS_PER_YEAR,
 ) -> pd.Series:
     """Calculate annualised realised volatility from daily returns.
@@ -153,11 +159,11 @@ def realised_volatility(
 
 def add_raw_factors(
     panel: pd.DataFrame,
-    momentum_12m_lag: int = 252,
-    momentum_skip_lag: int = 21,
+    momentum_12m_lag: int = MOMENTUM_LONG_LAG,
+    momentum_skip_lag: int = MOMENTUM_SKIP_LAG,
     momentum_3m_lookback: int = 63,
     reversal_lookback: int = 21,
-    volatility_window: int = 63,
+    volatility_window: int = REALISED_VOLATILITY_WINDOW,
 ) -> pd.DataFrame:
     """Add the initial raw factor library to the processed equity panel.
 
