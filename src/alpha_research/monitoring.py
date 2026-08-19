@@ -176,7 +176,12 @@ def create_historical_flag(
     upper_tail: float = MONITORING_SPECIFICATION.historical_upper_tail,
     notes: str = "",
 ) -> dict[str, Any]:
-    """Create a historically calibrated PASS/WARNING diagnostic."""
+    """Create a historically calibrated PASS/WARNING diagnostic.
+
+    Calibration uses the supplied history without date substitution.  A
+    missing latest value or unusable history produces ``UNAVAILABLE``; adverse
+    values must cross the selected tail threshold strictly to produce a warning.
+    """
     _validate_flag_labels(
         entity_type=entity_type,
         entity=entity,
@@ -322,7 +327,12 @@ def build_signal_diagnostic_flags(
         MONITORING_SPECIFICATION.minimum_cross_sectional_observations
     ),
 ) -> pd.DataFrame:
-    """Build Notebook 08's structural and predictive flags for each factor."""
+    """Build Notebook 08's structural and predictive flags for each factor.
+
+    Structural coverage uses the latest signal date.  Predictive diagnostics use
+    the latest date with an observable rolling IC, preserving their distinct
+    as-of-date semantics.
+    """
     if min_observations <= 0:
         raise ValueError("min_observations must be positive.")
 
@@ -940,7 +950,12 @@ def calculate_performance_risk_state(
     risk_window: int = MONITORING_SPECIFICATION.risk_window,
     periods_per_year: int = TRADING_DAYS_PER_YEAR,
 ) -> pd.DataFrame:
-    """Build rolling portfolio and benchmark risk histories."""
+    """Build rolling portfolio and benchmark risk histories.
+
+    Each trailing statistic includes returns through its reported date.  The
+    benchmark is processed through the same calculation path as the selected
+    portfolios so output definitions remain comparable.
+    """
     _require_monitoring_columns(
         portfolio_daily,
         {

@@ -1,20 +1,96 @@
+from inspect import signature
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from alpha_research.config.research import (
+    FACTOR_COLUMNS,
+    MONITORING_SPECIFICATION,
+    TRADING_DAYS_PER_YEAR,
+)
 from alpha_research.monitoring import (
     STATUS_SEVERITY,
     build_latest_monitoring_overview,
     build_monitoring_flag_matrix,
+    build_portfolio_diagnostic_flags,
     build_signal_diagnostic_flags,
+    build_strategy_diagnostic_flags,
+    calculate_implementation_monitoring_state,
+    calculate_performance_risk_state,
     create_historical_flag,
     create_structural_flag,
     prepare_diagnostic_flags,
     select_active_diagnostic_flags,
     summarise_diagnostic_flags,
-    build_portfolio_diagnostic_flags,
-    build_strategy_diagnostic_flags,
 )
+
+
+def test_public_monitoring_defaults_match_frozen_research_configuration():
+    historical_parameters = signature(create_historical_flag).parameters
+    assert (
+        historical_parameters["lower_tail"].default
+        == MONITORING_SPECIFICATION.historical_lower_tail
+    )
+    assert (
+        historical_parameters["upper_tail"].default
+        == MONITORING_SPECIFICATION.historical_upper_tail
+    )
+
+    signal_parameters = signature(build_signal_diagnostic_flags).parameters
+    assert signal_parameters["factors"].default == tuple(FACTOR_COLUMNS)
+    assert (
+        signal_parameters["min_observations"].default
+        == MONITORING_SPECIFICATION.minimum_cross_sectional_observations
+    )
+
+    portfolio_parameters = signature(build_portfolio_diagnostic_flags).parameters
+    assert (
+        portfolio_parameters["structural_coverage_tolerance"].default
+        == MONITORING_SPECIFICATION.structural_coverage_tolerance
+    )
+
+    performance_parameters = signature(calculate_performance_risk_state).parameters
+    assert (
+        performance_parameters["performance_window"].default
+        == MONITORING_SPECIFICATION.performance_window
+    )
+    assert (
+        performance_parameters["risk_window"].default
+        == MONITORING_SPECIFICATION.risk_window
+    )
+    assert (
+        performance_parameters["periods_per_year"].default
+        == TRADING_DAYS_PER_YEAR
+    )
+
+    implementation_parameters = signature(
+        calculate_implementation_monitoring_state
+    ).parameters
+    assert (
+        implementation_parameters["implementation_window"].default
+        == MONITORING_SPECIFICATION.implementation_window
+    )
+    assert (
+        implementation_parameters["liquidity_window"].default
+        == MONITORING_SPECIFICATION.monitoring_liquidity_window
+    )
+    assert (
+        implementation_parameters["liquidity_min_periods"].default
+        == MONITORING_SPECIFICATION.monitoring_liquidity_min_periods
+    )
+    assert (
+        implementation_parameters["participation_rate"].default
+        == MONITORING_SPECIFICATION.capacity_participation_rate
+    )
+    assert (
+        implementation_parameters["periods_per_year"].default
+        == TRADING_DAYS_PER_YEAR
+    )
+    assert (
+        implementation_parameters["tolerance"].default
+        == MONITORING_SPECIFICATION.numerical_tolerance
+    )
 
 
 def structural_flag(*, diagnostic="Coverage", value=1.0, passes=True):

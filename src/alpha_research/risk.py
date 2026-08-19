@@ -1,3 +1,11 @@
+"""Benchmark, beta, and concentration measurements for strategy monitoring.
+
+Benchmark returns are aligned to the equity panel's forward-return convention,
+while rolling risk estimates use observations available through each reported
+date.  The module validates portfolio, holdings, and attribution identities but
+does not alter weights or realised returns.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -8,10 +16,9 @@ import pandas as pd
 from alpha_research.config.research import (
     DEFAULT_NUMERICAL_TOLERANCE,
     MONITORING_SPECIFICATION,
+    TRADING_DAYS_PER_YEAR,
 )
 from alpha_research.metrics import summarise_concentration
-
-TRADING_DAYS_PER_YEAR = 252
 
 
 def prepare_benchmark_returns(
@@ -20,7 +27,12 @@ def prepare_benchmark_returns(
     price_column: str = "adj_close",
     output_column: str = "benchmark_return",
 ) -> pd.DataFrame:
-    """Create daily benchmark returns from an adjusted-price series."""
+    """Create forward daily benchmark returns from an adjusted-price series.
+
+    The return dated ``t`` spans the adjusted close at ``t`` to the adjusted
+    close at the next available benchmark date, matching the backtest label
+    convention.
+    """
     required = {date_column, price_column}
     missing = required - set(benchmark.columns)
 
@@ -361,7 +373,7 @@ def calculate_rolling_market_model(
     benchmark: pd.DataFrame,
     window: int = 63,
     min_periods: int | None = None,
-    annualisation_factor: int = 252,
+    annualisation_factor: int = TRADING_DAYS_PER_YEAR,
     output_prefix: str = "market_model",
 ) -> pd.DataFrame:
     """Estimate a rolling single-factor market model for each ticker.
@@ -614,7 +626,11 @@ def calculate_realised_beta_state(
     window: int = MONITORING_SPECIFICATION.risk_window,
     min_periods: int | None = None,
 ) -> pd.DataFrame:
-    """Calculate rolling realised beta and correlation by return stream."""
+    """Calculate rolling realised beta and correlation by return stream.
+
+    Each value uses aligned strategy and benchmark returns through its reported
+    date; no future observations enter the rolling window.
+    """
     if min_periods is None:
         min_periods = window
 
@@ -725,7 +741,11 @@ def prepare_holdings_beta_detail(
     portfolios: Sequence[str] | None = None,
     beta_column: str = "beta_126",
 ) -> pd.DataFrame:
-    """Attach security betas and calculate holdings-level beta contributions."""
+    """Attach same-date security betas and calculate beta contributions.
+
+    Missing betas remain missing rather than being forward-filled so coverage
+    remains an explicit structural-readiness measurement.
+    """
     _require_columns(
         security_holdings,
         {"date", "ticker", "portfolio", "weight"},
@@ -852,7 +872,12 @@ def calculate_beta_state(
     min_periods: int | None = None,
     tolerance: float = DEFAULT_NUMERICAL_TOLERANCE,
 ) -> pd.DataFrame:
-    """Build Notebook 08's combined realised and holdings beta state."""
+    """Build Notebook 08's realised and holdings-implied beta state.
+
+    Holdings-implied beta is contemporaneous; realised beta is a trailing
+    measurement through the same date.  The exported measurement gap preserves
+    that intentional difference in interpretation.
+    """
     if window != 126:
         raise ValueError(
             "The exported beta-state schema currently requires window=126."

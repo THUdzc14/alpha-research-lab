@@ -1,16 +1,59 @@
+from inspect import signature
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from alpha_research.config.research import (
+    DEFAULT_NUMERICAL_TOLERANCE,
+    MONITORING_SPECIFICATION,
+    TRADING_DAYS_PER_YEAR,
+)
 from alpha_research.risk import (
+    calculate_beta_state,
+    calculate_concentration_state,
+    calculate_contribution_concentration_state,
     calculate_market_exposure,
     calculate_rolling_beta,
+    calculate_rolling_contribution_detail,
     calculate_rolling_market_model,
+    calculate_realised_beta_state,
     calculate_sector_exposure,
     calculate_strategy_exposures,
     prepare_benchmark_returns,
     summarise_sector_exposure,
 )
+
+
+def test_public_risk_defaults_match_frozen_research_configuration():
+    market_model_parameters = signature(calculate_rolling_market_model).parameters
+    assert (
+        market_model_parameters["annualisation_factor"].default
+        == TRADING_DAYS_PER_YEAR
+    )
+
+    realised_beta_parameters = signature(calculate_realised_beta_state).parameters
+    assert (
+        realised_beta_parameters["window"].default
+        == MONITORING_SPECIFICATION.risk_window
+    )
+
+    beta_state_parameters = signature(calculate_beta_state).parameters
+    assert (
+        beta_state_parameters["window"].default
+        == MONITORING_SPECIFICATION.risk_window
+    )
+    assert beta_state_parameters["tolerance"].default == DEFAULT_NUMERICAL_TOLERANCE
+
+    for concentration_function in (
+        calculate_rolling_contribution_detail,
+        calculate_contribution_concentration_state,
+        calculate_concentration_state,
+    ):
+        assert (
+            signature(concentration_function).parameters["window"].default
+            == MONITORING_SPECIFICATION.concentration_window
+        )
 
 
 def test_prepare_benchmark_returns():

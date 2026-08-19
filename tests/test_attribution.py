@@ -1,3 +1,5 @@
+from inspect import signature
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -8,6 +10,23 @@ from alpha_research.attribution import (
     reconcile_security_attribution,
     reconstruct_portfolio_daily_attribution,
 )
+from alpha_research.config.research import (
+    BACKTEST_RETURN_COLUMN,
+    BASELINE_TRANSACTION_COST_BPS,
+    DEFAULT_NUMERICAL_TOLERANCE,
+)
+
+
+def test_public_attribution_defaults_match_frozen_research_configuration():
+    preparation_parameters = signature(prepare_security_attribution).parameters
+    assert preparation_parameters["return_column"].default == BACKTEST_RETURN_COLUMN
+    assert (
+        preparation_parameters["transaction_cost_bps"].default
+        == BASELINE_TRANSACTION_COST_BPS
+    )
+
+    reconciliation_parameters = signature(reconcile_security_attribution).parameters
+    assert reconciliation_parameters["tolerance"].default == DEFAULT_NUMERICAL_TOLERANCE
 
 
 def make_attribution_inputs():

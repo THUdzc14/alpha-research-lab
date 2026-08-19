@@ -275,7 +275,11 @@ def reconcile_security_attribution(
     security_attribution: pd.DataFrame,
     tolerance: float = DEFAULT_NUMERICAL_TOLERANCE,
 ) -> pd.DataFrame:
-    """Audit security sums against portfolio-day backtest outputs."""
+    """Audit security sums against portfolio-day backtest outputs.
+
+    Coverage must match exactly, and each portfolio passes only when its maximum
+    absolute reconstruction difference is strictly below ``tolerance``.
+    """
     tolerance = float(tolerance)
 
     if not math.isfinite(tolerance) or tolerance < 0.0:
