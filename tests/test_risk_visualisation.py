@@ -29,9 +29,7 @@ def risk_histories():
                     "date": date,
                     "portfolio": portfolio,
                     "beta_coverage": 1.0,
-                    "holdings_market_beta": (
-                        0.80 + portfolio_number * 0.10 + date_number * 0.01
-                    ),
+                    "holdings_market_beta": (0.80 + portfolio_number * 0.10 + date_number * 0.01),
                     "realised_gross_beta_126": (0.70 + date_number * 0.01),
                     "beta_measurement_gap": (0.10 + portfolio_number * 0.10),
                 }
@@ -83,6 +81,7 @@ def test_beta_figure_uses_metric_specification(
     assert figure.layout.title.text == (BETA_METRIC_SPECIFICATIONS[metric].title)
     assert figure.layout.yaxis.tickformat == tickformat
     assert len(figure.layout.shapes) == zero_lines
+    assert all(isinstance(trace, go.Scatter) for trace in figure.data)
 
 
 @pytest.mark.parametrize(
@@ -118,9 +117,7 @@ def test_concentration_figure_uses_metric_specification(
 
     assert isinstance(figure, go.Figure)
     assert len(figure.data) == 2
-    assert figure.layout.title.text == (
-        CONCENTRATION_METRIC_SPECIFICATIONS[metric].title
-    )
+    assert figure.layout.title.text == (CONCENTRATION_METRIC_SPECIFICATIONS[metric].title)
     assert figure.layout.yaxis.tickformat == tickformat
     assert len(figure.layout.shapes) == 0
 
@@ -153,3 +150,6 @@ def test_risk_figures_reject_unsupported_or_malformed_data(
             concentration.drop(columns="effective_position_count"),
             "effective_position_count",
         )
+
+    with pytest.raises(ValueError, match="height must be a positive integer"):
+        build_beta_figure(beta, "beta_coverage", height=False)

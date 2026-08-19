@@ -60,8 +60,10 @@ def test_cumulative_performance_figure_preserves_order_and_styles(
     assert figure.data[0].line.color == PORTFOLIO_COLOURS["Pure Inverse Volatility"]
     assert figure.data[1].line.color == PORTFOLIO_COLOURS["Composite Score"]
     assert figure.data[2].line.color == PORTFOLIO_COLOURS["SPY"]
-    # assert figure.data[2].line.dash == "dash"
     assert figure.data[2].line.dash == "10px, 5px"
+    assert all(isinstance(trace, go.Scatter) for trace in figure.data)
+    assert all(trace.mode == "lines" for trace in figure.data)
+    assert all(trace.legendgroup == trace.name for trace in figure.data)
     assert list(figure.data[1].y) == [1.0, 0.98, 1.03]
     assert figure.layout.hovermode == "x unified"
     assert figure.layout.yaxis.title.text == "Indexed wealth (start = 1.0)"
@@ -116,9 +118,7 @@ def test_rolling_metric_figure_rejects_unknown_metric(performance_history):
 
 def test_figure_builders_reject_malformed_data(performance_history):
     with pytest.raises(KeyError, match="indexed_wealth"):
-        build_cumulative_performance_figure(
-            performance_history.drop(columns="indexed_wealth")
-        )
+        build_cumulative_performance_figure(performance_history.drop(columns="indexed_wealth"))
 
     duplicated = pd.concat(
         [performance_history, performance_history.iloc[[0]]],
@@ -129,9 +129,7 @@ def test_figure_builders_reject_malformed_data(performance_history):
         build_drawdown_figure(duplicated)
 
     invalid_numeric = performance_history.copy()
-    invalid_numeric["rolling_sharpe_252"] = invalid_numeric[
-        "rolling_sharpe_252"
-    ].astype("object")
+    invalid_numeric["rolling_sharpe_252"] = invalid_numeric["rolling_sharpe_252"].astype("object")
     invalid_numeric.loc[0, "rolling_sharpe_252"] = "invalid"
 
     with pytest.raises(ValueError, match="non-numeric"):
@@ -139,3 +137,9 @@ def test_figure_builders_reject_malformed_data(performance_history):
 
     with pytest.raises(ValueError, match="positive integer"):
         build_drawdown_figure(performance_history, height=0)
+
+    with pytest.raises(ValueError, match="positive integer"):
+        build_drawdown_figure(performance_history, height=True)
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        build_cumulative_performance_figure(performance_history.iloc[0:0])

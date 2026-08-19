@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import pandas as pd
@@ -15,7 +16,6 @@ PORTFOLIO_COLOURS = {
 }
 
 PORTFOLIO_LINE_DASHES = {
-    # "SPY": "dash",
     "SPY": "10px, 5px",
 }
 
@@ -91,12 +91,28 @@ def _require_figure_columns(
         raise KeyError(f"data is missing columns: {sorted(missing_columns)}")
 
 
+def _validate_positive_integer(value: int, *, name: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{name} must be a positive integer.")
+
+
+def _validate_figure_height(height: int) -> None:
+    _validate_positive_integer(height, name="height")
+
+
+def _validate_top_n(top_n: int) -> None:
+    _validate_positive_integer(top_n, name="top_n")
+
+
 def _prepare_figure_data(
     data: pd.DataFrame,
     value_column: str,
+    *,
+    series_column: str,
 ) -> tuple[pd.DataFrame, list[str]]:
-    _require_figure_columns(data, {"date", "portfolio", value_column})
-    prepared = data[["date", "portfolio", value_column]].copy()
+    """Validate and order one dated value series for line plotting."""
+    _require_figure_columns(data, {"date", series_column, value_column})
+    prepared = data[["date", series_column, value_column]].copy()
 
     if prepared.empty:
         raise ValueError("data must not be empty.")
@@ -106,11 +122,11 @@ def _prepare_figure_data(
     if prepared["date"].isna().any():
         raise ValueError("data.date contains invalid dates.")
 
-    if prepared["portfolio"].isna().any():
-        raise ValueError("data.portfolio contains missing values.")
+    if prepared[series_column].isna().any():
+        raise ValueError(f"data.{series_column} contains missing values.")
 
-    if prepared.duplicated(["portfolio", "date"]).any():
-        raise ValueError("data contains duplicate portfolio-date rows.")
+    if prepared.duplicated([series_column, "date"]).any():
+        raise ValueError(f"data contains duplicate {series_column}-date rows.")
 
     numeric_values = pd.to_numeric(prepared[value_column], errors="coerce")
     invalid_values = prepared[value_column].notna() & numeric_values.isna()
@@ -119,23 +135,26 @@ def _prepare_figure_data(
         raise ValueError(f"data.{value_column} contains non-numeric values.")
 
     prepared[value_column] = numeric_values
-    portfolio_order = list(pd.unique(prepared["portfolio"]))
-    positions = {
-        portfolio: position for position, portfolio in enumerate(portfolio_order)
-    }
-    prepared["_portfolio_order"] = prepared["portfolio"].map(positions)
+    series_order = list(pd.unique(prepared[series_column]))
+    positions = {series: position for position, series in enumerate(series_order)}
+    order_column = "_figure_series_order"
+    prepared[order_column] = prepared[series_column].map(positions)
     prepared = (
-        prepared.sort_values(["_portfolio_order", "date"], kind="stable")
-        .drop(columns="_portfolio_order")
+        prepared.sort_values([order_column, "date"], kind="stable")
+        .drop(columns=order_column)
         .reset_index(drop=True)
     )
 
-    return prepared, portfolio_order
+    return prepared, series_order
 
 
-def _portfolio_colour(portfolio: str, position: int) -> str:
-    return PORTFOLIO_COLOURS.get(
-        portfolio,
+def _series_colour(
+    series: str,
+    position: int,
+    colours: Mapping[str, str],
+) -> str:
+    return colours.get(
+        series,
         FALLBACK_COLOURS[position % len(FALLBACK_COLOURS)],
     )
 
@@ -150,31 +169,37 @@ def _line_figure(
     hoverformat: str,
     show_zero_line: bool,
     height: int,
+    series_column: str = "portfolio",
+    series_colours: Mapping[str, str] = PORTFOLIO_COLOURS,
+    line_dashes: Mapping[str, str] = PORTFOLIO_LINE_DASHES,
+    line_widths: Mapping[str, float] = PORTFOLIO_LINE_WIDTHS,
 ) -> go.Figure:
-    if not isinstance(height, int) or isinstance(height, bool) or height <= 0:
-        raise ValueError("height must be a positive integer.")
+    """Build a consistently styled line figure for ordered dated series."""
+    _validate_figure_height(height)
 
-    prepared, portfolio_order = _prepare_figure_data(data, value_column)
+    prepared, series_order = _prepare_figure_data(
+        data,
+        value_column,
+        series_column=series_column,
+    )
     figure = go.Figure()
 
-    for position, portfolio in enumerate(portfolio_order):
-        portfolio_data = prepared.loc[prepared["portfolio"].eq(portfolio)]
+    for position, series in enumerate(series_order):
+        series_data = prepared.loc[prepared[series_column].eq(series)]
         figure.add_trace(
             go.Scatter(
-                x=portfolio_data["date"],
-                y=portfolio_data[value_column],
+                x=series_data["date"],
+                y=series_data[value_column],
                 mode="lines",
-                name=portfolio,
-                legendgroup=portfolio,
+                name=series,
+                legendgroup=series,
                 connectgaps=False,
                 line={
-                    "color": _portfolio_colour(portfolio, position),
-                    "dash": PORTFOLIO_LINE_DASHES.get(portfolio, "solid"),
-                    "width": PORTFOLIO_LINE_WIDTHS.get(portfolio, 2.0),
+                    "color": _series_colour(series, position, series_colours),
+                    "dash": line_dashes.get(series, "solid"),
+                    "width": line_widths.get(series, 2.0),
                 },
-                hovertemplate=(
-                    f"%{{x|%Y-%m-%d}}<br>%{{y:{hoverformat}}}<extra></extra>"
-                ),
+                hovertemplate=(f"%{{x|%Y-%m-%d}}<br>%{{y:{hoverformat}}}<extra></extra>"),
             )
         )
 
@@ -266,8 +291,7 @@ def build_rolling_metric_figure(
     """Plot one supported rolling metric with consistent formatting."""
     if metric not in ROLLING_METRIC_SPECIFICATIONS:
         raise ValueError(
-            "Unsupported rolling metric. Expected one of: "
-            f"{sorted(ROLLING_METRIC_SPECIFICATIONS)}"
+            f"Unsupported rolling metric. Expected one of: {sorted(ROLLING_METRIC_SPECIFICATIONS)}"
         )
 
     specification = ROLLING_METRIC_SPECIFICATIONS[metric]
@@ -531,41 +555,6 @@ DIAGNOSTIC_COUNT_STYLES = {
 }
 
 
-def _factor_line_figure(
-    signal_history: pd.DataFrame,
-    *,
-    value_column: str,
-    title: str,
-    yaxis_title: str,
-    tickformat: str,
-    hoverformat: str,
-    show_zero_line: bool,
-    height: int,
-) -> go.Figure:
-    _require_figure_columns(signal_history, {"date", "factor", value_column})
-    figure_data = signal_history[["date", "factor", value_column]].rename(
-        columns={"factor": "portfolio"}
-    )
-    figure = _line_figure(
-        figure_data,
-        value_column=value_column,
-        title=title,
-        yaxis_title=yaxis_title,
-        tickformat=tickformat,
-        hoverformat=hoverformat,
-        show_zero_line=show_zero_line,
-        height=height,
-    )
-
-    for position, trace in enumerate(figure.data):
-        trace.line.color = FACTOR_COLOURS.get(
-            trace.name,
-            FALLBACK_COLOURS[position % len(FALLBACK_COLOURS)],
-        )
-
-    return figure
-
-
 def build_signal_health_figure(
     signal_history: pd.DataFrame,
     metric: str,
@@ -582,7 +571,7 @@ def build_signal_health_figure(
 
     specification = SIGNAL_METRIC_SPECIFICATIONS[metric]
 
-    return _factor_line_figure(
+    return _line_figure(
         signal_history,
         value_column=metric,
         title=specification.title if title is None else title,
@@ -591,6 +580,8 @@ def build_signal_health_figure(
         hoverformat=specification.hoverformat,
         show_zero_line=specification.show_zero_line,
         height=height,
+        series_column="factor",
+        series_colours=FACTOR_COLOURS,
     )
 
 
@@ -622,7 +613,7 @@ def build_factor_dependence_figure(
         .rename(columns=labels)
         .melt(
             id_vars="date",
-            var_name="portfolio",
+            var_name="series",
             value_name="correlation",
         )
     )
@@ -635,6 +626,7 @@ def build_factor_dependence_figure(
         hoverformat=".3f",
         show_zero_line=True,
         height=height,
+        series_column="series",
     )
 
     for trace in figure.data:
@@ -650,15 +642,14 @@ def _build_portfolio_monitoring_figure(
     history: pd.DataFrame,
     metric: str,
     *,
-    specifications: dict[str, RollingMetricSpecification],
+    specifications: Mapping[str, RollingMetricSpecification],
     category: str,
     title: str | None,
     height: int,
 ) -> go.Figure:
     if metric not in specifications:
         raise ValueError(
-            f"Unsupported {category} metric. Expected one of: "
-            f"{sorted(specifications)}"
+            f"Unsupported {category} metric. Expected one of: {sorted(specifications)}"
         )
 
     specification = specifications[metric]
@@ -746,11 +737,6 @@ def build_liquidity_coverage_figure(
     )
 
 
-def _validate_figure_height(height: int) -> None:
-    if not isinstance(height, int) or isinstance(height, bool) or height <= 0:
-        raise ValueError("height must be a positive integer.")
-
-
 def _prepare_monitoring_status_figure_data(
     monitoring_overview: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -776,6 +762,9 @@ def _prepare_monitoring_status_figure_data(
     if prepared.empty:
         raise ValueError("monitoring_overview must not be empty.")
 
+    if prepared[["entity_type", "entity"]].isna().any().any():
+        raise ValueError("monitoring_overview contains missing entity labels.")
+
     if prepared.duplicated(["entity_type", "entity"]).any():
         raise ValueError("monitoring_overview contains duplicate entity rows.")
 
@@ -783,9 +772,7 @@ def _prepare_monitoring_status_figure_data(
         unknown = sorted(set(prepared[column].dropna()) - set(STATUS_CODES))
 
         if unknown or prepared[column].isna().any():
-            raise ValueError(
-                f"monitoring_overview.{column} contains " f"unknown statuses: {unknown}"
-            )
+            raise ValueError(f"monitoring_overview.{column} contains unknown statuses: {unknown}")
 
     return prepared
 
@@ -828,7 +815,7 @@ def build_monitoring_status_heatmap(
             colorscale=colourscale,
             showscale=False,
             texttemplate="%{text}",
-            hovertemplate=("<b>%{y}</b><br>" "%{x}: %{text}<extra></extra>"),
+            hovertemplate=("<b>%{y}</b><br>%{x}: %{text}<extra></extra>"),
         )
     )
 
@@ -881,6 +868,9 @@ def build_diagnostic_count_figure(
     if monitoring_overview.empty:
         raise ValueError("monitoring_overview must not be empty.")
 
+    if monitoring_overview["entity"].isna().any():
+        raise ValueError("monitoring_overview.entity contains missing values.")
+
     figure = go.Figure()
 
     for column, (
@@ -893,12 +883,7 @@ def build_diagnostic_count_figure(
         )
         invalid = monitoring_overview[column].notna() & values.isna()
 
-        if (
-            invalid.any()
-            or values.isna().any()
-            or values.lt(0).any()
-            or values.mod(1).ne(0).any()
-        ):
+        if invalid.any() or values.isna().any() or values.lt(0).any() or values.mod(1).ne(0).any():
             raise ValueError(f"monitoring_overview.{column} contains invalid counts.")
 
         figure.add_trace(
@@ -995,6 +980,9 @@ def build_side_cost_attribution_figure(
     if attribution_summary.empty:
         raise ValueError("attribution_summary must not be empty.")
 
+    if attribution_summary["portfolio"].isna().any():
+        raise ValueError("attribution_summary.portfolio contains missing values.")
+
     if attribution_summary["portfolio"].duplicated().any():
         raise ValueError("attribution_summary contains duplicate portfolios.")
 
@@ -1012,9 +1000,7 @@ def build_side_cost_attribution_figure(
         )
 
         if numeric_values.isna().any():
-            raise ValueError(
-                "attribution_summary contains invalid " f"{component} values."
-            )
+            raise ValueError(f"attribution_summary contains invalid {component} values.")
 
         figure.add_trace(
             go.Bar(
@@ -1096,31 +1082,36 @@ def build_cumulative_attribution_figure(
     ]
 
     if selected.empty:
-        raise ValueError("attribution_history is missing portfolio: " f"{portfolio}")
+        raise ValueError(f"attribution_history is missing portfolio: {portfolio}")
 
     figure_data = selected.rename(columns=columns).melt(
         id_vars="date",
-        var_name="portfolio",
+        var_name="component",
         value_name="cumulative_contribution",
     )
+    component_colours = {
+        component: style["color"] for component, style in ATTRIBUTION_COMPONENT_STYLES.items()
+    }
+    component_dashes = {
+        component: style["dash"] for component, style in ATTRIBUTION_COMPONENT_STYLES.items()
+    }
+    component_widths = {
+        component: style["width"] for component, style in ATTRIBUTION_COMPONENT_STYLES.items()
+    }
     figure = _line_figure(
         figure_data,
         value_column="cumulative_contribution",
-        title=(
-            f"Cumulative Additive Attribution — {portfolio}" if title is None else title
-        ),
+        title=(f"Cumulative Additive Attribution — {portfolio}" if title is None else title),
         yaxis_title="Cumulative contribution",
         tickformat=".0%",
         hoverformat=".2%",
         show_zero_line=True,
         height=height,
+        series_column="component",
+        series_colours=component_colours,
+        line_dashes=component_dashes,
+        line_widths=component_widths,
     )
-
-    for trace in figure.data:
-        style = ATTRIBUTION_COMPONENT_STYLES[trace.name]
-        trace.line.color = style["color"]
-        trace.line.dash = style["dash"]
-        trace.line.width = style["width"]
 
     return figure
 
@@ -1142,6 +1133,9 @@ def _validate_security_contribution_summary(
 
     if security_summary.empty:
         raise ValueError("security_summary must not be empty.")
+
+    if security_summary[["portfolio", "ticker"]].isna().any().any():
+        raise ValueError("security_summary contains missing portfolio or ticker labels.")
 
     if security_summary["ticker"].duplicated().any():
         raise ValueError("security_summary contains duplicate tickers.")
@@ -1173,11 +1167,6 @@ def _validate_security_contribution_summary(
         raise ValueError("absolute_contribution_share must be non-negative.")
 
     return prepared
-
-
-def _validate_top_n(top_n: int) -> None:
-    if isinstance(top_n, bool) or not isinstance(top_n, int) or top_n <= 0:
-        raise ValueError("top_n must be a positive integer.")
 
 
 def build_security_contribution_figure(
@@ -1251,11 +1240,7 @@ def build_security_contribution_figure(
     )
     figure.update_layout(
         title={
-            "text": (
-                "Largest Security Contributors" f" — {portfolio}"
-                if title is None
-                else title
-            ),
+            "text": (f"Largest Security Contributors — {portfolio}" if title is None else title),
             "x": 0.01,
             "xanchor": "left",
         },
@@ -1333,7 +1318,7 @@ def build_security_contribution_share_figure(
     figure.update_layout(
         title={
             "text": (
-                "Largest Absolute Security Contribution Shares" f" — {portfolio}"
+                f"Largest Absolute Security Contribution Shares — {portfolio}"
                 if title is None
                 else title
             ),

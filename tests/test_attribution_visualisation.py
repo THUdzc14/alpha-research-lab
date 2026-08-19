@@ -74,17 +74,17 @@ def test_cumulative_figure_selects_portfolio(
     figure = build_cumulative_attribution_figure(
         history,
         "Beta",
+        title="Beta Attribution",
+        height=510,
     )
 
     assert [trace.name for trace in figure.data] == list(ATTRIBUTION_COMPONENT_STYLES)
-
+    assert figure.layout.title.text == "Beta Attribution"
+    assert figure.layout.height == 510
+    assert all(isinstance(trace, go.Scatter) for trace in figure.data)
     assert all(len(trace.x) == 3 for trace in figure.data)
-    assert figure.data[0].line.color == (
-        ATTRIBUTION_COMPONENT_STYLES["Long side"]["color"]
-    )
-    assert figure.data[3].line.width == (
-        ATTRIBUTION_COMPONENT_STYLES["Net contribution"]["width"]
-    )
+    assert figure.data[0].line.color == (ATTRIBUTION_COMPONENT_STYLES["Long side"]["color"])
+    assert figure.data[3].line.width == (ATTRIBUTION_COMPONENT_STYLES["Net contribution"]["width"])
     assert len(figure.layout.shapes) == 1
 
 
@@ -118,3 +118,12 @@ def test_figures_reject_malformed_data(
             history,
             "Missing",
         )
+
+    missing_portfolio = summary.copy()
+    missing_portfolio.loc[0, "portfolio"] = pd.NA
+
+    with pytest.raises(ValueError, match="portfolio contains missing values"):
+        build_side_cost_attribution_figure(missing_portfolio)
+
+    with pytest.raises(ValueError, match="height must be a positive integer"):
+        build_cumulative_attribution_figure(history, "Alpha", height=False)

@@ -51,9 +51,13 @@ def test_signed_figure_selects_both_tails(
     figure = build_security_contribution_figure(
         security_summary,
         top_n=2,
+        title="Signed Contributors",
+        height=540,
     )
 
     assert isinstance(figure, go.Figure)
+    assert figure.layout.title.text == "Signed Contributors"
+    assert figure.layout.height == 540
     assert len(figure.data) == 1
     assert set(figure.data[0].y) == {
         "AAA",
@@ -95,6 +99,12 @@ def test_figures_reject_malformed_data(
             top_n=0,
         )
 
+    with pytest.raises(ValueError, match="positive integer"):
+        build_security_contribution_figure(
+            security_summary,
+            top_n=True,
+        )
+
     with pytest.raises(
         KeyError,
         match="absolute_contribution_share",
@@ -114,3 +124,12 @@ def test_figures_reject_malformed_data(
         match="exactly one portfolio",
     ):
         build_security_contribution_figure(multiple_portfolios)
+
+    missing_ticker = security_summary.copy()
+    missing_ticker.loc[0, "ticker"] = pd.NA
+
+    with pytest.raises(ValueError, match="missing portfolio or ticker labels"):
+        build_security_contribution_share_figure(missing_ticker)
+
+    with pytest.raises(ValueError, match="height must be a positive integer"):
+        build_security_contribution_share_figure(security_summary, height=0)

@@ -74,6 +74,8 @@ def test_signal_health_figure_uses_metric_styles(
     ]
     assert figure.data[0].line.color == FACTOR_COLOURS["Realised Volatility"]
     assert figure.data[1].line.color == FACTOR_COLOURS["Momentum"]
+    assert all(isinstance(trace, go.Scatter) for trace in figure.data)
+    assert all(trace.legendgroup == trace.name for trace in figure.data)
     assert figure.layout.title.text == specification.title
     assert figure.layout.yaxis.tickformat == tickformat
     assert len(figure.layout.shapes) == expected_zero_lines
@@ -110,3 +112,17 @@ def test_signal_figures_reject_unsupported_or_malformed_data(
         build_factor_dependence_figure(
             dependence_history.drop(columns="rolling_factor_rank_correlation_252")
         )
+
+    duplicated = pd.concat(
+        [signal_history, signal_history.iloc[[0]]],
+        ignore_index=True,
+    )
+
+    with pytest.raises(ValueError, match="duplicate factor-date"):
+        build_signal_health_figure(duplicated, "ic")
+
+    missing_factor = signal_history.copy()
+    missing_factor.loc[0, "factor"] = pd.NA
+
+    with pytest.raises(ValueError, match="data.factor contains missing values"):
+        build_signal_health_figure(missing_factor, "ic")

@@ -64,10 +64,16 @@ def monitoring_overview():
 def test_monitoring_status_heatmap_encodes_status_matrix(
     monitoring_overview,
 ):
-    figure = build_monitoring_status_heatmap(monitoring_overview)
+    figure = build_monitoring_status_heatmap(
+        monitoring_overview,
+        title="Current Monitoring Status",
+        height=500,
+    )
     heatmap = figure.data[0]
 
     assert isinstance(figure, go.Figure)
+    assert figure.layout.title.text == "Current Monitoring Status"
+    assert figure.layout.height == 500
     assert list(heatmap.x) == list(MONITORING_STATUS_LABELS.values())
     assert list(heatmap.y) == [
         "Momentum",
@@ -133,3 +139,12 @@ def test_diagnostic_figures_reject_malformed_data(
             monitoring_overview,
             height=0,
         )
+
+    missing_entity = monitoring_overview.copy()
+    missing_entity.loc[0, "entity"] = pd.NA
+
+    with pytest.raises(ValueError, match="missing entity labels"):
+        build_monitoring_status_heatmap(missing_entity)
+
+    with pytest.raises(ValueError, match="entity contains missing values"):
+        build_diagnostic_count_figure(missing_entity)

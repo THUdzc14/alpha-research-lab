@@ -29,9 +29,7 @@ def implementation_histories():
                     "portfolio": portfolio,
                     "annualised_turnover_63": (8.0 + portfolio_number),
                     "largest_trade_weight_63": (0.04 + date_number * 0.001),
-                    "minimum_trade_capacity_1pct_usd_millions_63": (
-                        50.0 + portfolio_number * 10.0
-                    ),
+                    "minimum_trade_capacity_1pct_usd_millions_63": (50.0 + portfolio_number * 10.0),
                     "maximum_missing_return_weight_63": 0.0,
                 }
             )
@@ -79,11 +77,10 @@ def test_implementation_figure_uses_metric_specification(
         "Fixed 50/50 Sleeves",
     ]
     assert figure.data[0].line.color == (PORTFOLIO_COLOURS["Composite Score"])
-    assert figure.layout.title.text == (
-        IMPLEMENTATION_METRIC_SPECIFICATIONS[metric].title
-    )
+    assert figure.layout.title.text == (IMPLEMENTATION_METRIC_SPECIFICATIONS[metric].title)
     assert figure.layout.yaxis.tickformat == tickformat
     assert len(figure.layout.shapes) == 0
+    assert all(isinstance(trace, go.Scatter) for trace in figure.data)
 
 
 def test_liquidity_coverage_figure_uses_percent_format(
@@ -117,3 +114,10 @@ def test_implementation_figures_reject_unsupported_or_malformed_data(
         match="liquidity_coverage",
     ):
         build_liquidity_coverage_figure(liquidity.drop(columns="liquidity_coverage"))
+
+    with pytest.raises(ValueError, match="height must be a positive integer"):
+        build_implementation_figure(
+            implementation,
+            "annualised_turnover_63",
+            height=0,
+        )
