@@ -2,26 +2,27 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import pandas as pd
 import streamlit as st
 
-from dashboard_pages import (
-    # render_page_placeholder,
-    render_strategy_overview,
-    render_performance_page,
-    render_signal_health_page,
-    render_risk_concentration_page,
-    render_implementation_liquidity_page,
-    render_attribution_page,
-)
-
 from alpha_research.dashboard_data import (
+    DashboardArtifactBundle,
     load_dashboard_artifacts,
 )
 from alpha_research.dashboard_ui import (
     DASHBOARD_PAGES,
     build_dashboard_filter_options,
     prepare_dashboard_freshness_table,
+)
+from dashboard.dashboard_pages import (
+    render_attribution_page,
+    render_implementation_liquidity_page,
+    render_performance_page,
+    render_risk_concentration_page,
+    render_signal_health_page,
+    render_strategy_overview,
 )
 
 st.set_page_config(
@@ -36,12 +37,12 @@ st.set_page_config(
     ttl=300,
     show_spinner=("Loading validated research artifacts..."),
 )
-def load_cached_dashboard_artifacts():
+def load_cached_dashboard_artifacts() -> DashboardArtifactBundle:
     """Load artifacts while allowing the UI to explain failures."""
     return load_dashboard_artifacts(strict=False)
 
 
-def render_artifact_state(bundle) -> None:
+def render_artifact_state(bundle: DashboardArtifactBundle) -> None:
     """Display structural errors or stale-data warnings."""
     freshness_table = prepare_dashboard_freshness_table(bundle.metadata)
 
@@ -89,14 +90,12 @@ def render_artifact_state(bundle) -> None:
                 width="stretch",
             )
     else:
-        st.success(
-            "All dated dashboard artifacts are "
-            f"current as of "
-            f"{bundle.as_of_date:%Y-%m-%d}."
-        )
+        st.success(f"All dated dashboard artifacts are current as of {bundle.as_of_date:%Y-%m-%d}.")
 
 
-def render_sidebar(bundle):
+def render_sidebar(
+    bundle: DashboardArtifactBundle,
+) -> tuple[str, tuple[str, ...], pd.Timestamp, pd.Timestamp]:
     """Render navigation and common portfolio/date controls."""
     options = build_dashboard_filter_options(
         bundle.attribution["selected_implementations"],
@@ -145,26 +144,14 @@ def render_sidebar(bundle):
     return page, tuple(portfolios), start_date, end_date
 
 
-def main() -> None:
-    """Run the dashboard shell."""
-    bundle = load_cached_dashboard_artifacts()
-
-    st.title("Systematic Alpha Research Framework")
-    st.caption(
-        "Validated research artifacts, frozen "
-        "strategy definitions, and reusable "
-        "monitoring analytics."
-    )
-
-    render_artifact_state(bundle)
-
-    (
-        page,
-        portfolios,
-        start_date,
-        end_date,
-    ) = render_sidebar(bundle)
-
+def render_dashboard_page(
+    page: str,
+    bundle: DashboardArtifactBundle,
+    portfolios: Sequence[str],
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
+) -> None:
+    """Dispatch a supported page while preserving its filter interface."""
     if page == "Strategy Overview":
         render_strategy_overview(
             bundle,
@@ -206,6 +193,35 @@ def main() -> None:
         )
     else:
         raise ValueError(f"Unsupported dashboard page: {page}")
+
+
+def main() -> None:
+    """Run the dashboard shell."""
+    bundle = load_cached_dashboard_artifacts()
+
+    st.title("Systematic Alpha Research Framework")
+    st.caption(
+        "Validated research artifacts, frozen "
+        "strategy definitions, and reusable "
+        "monitoring analytics."
+    )
+
+    render_artifact_state(bundle)
+
+    (
+        page,
+        portfolios,
+        start_date,
+        end_date,
+    ) = render_sidebar(bundle)
+
+    render_dashboard_page(
+        page,
+        bundle,
+        portfolios,
+        start_date,
+        end_date,
+    )
 
     with st.expander("All artifact metadata"):
         st.dataframe(

@@ -63,9 +63,7 @@ def _build_strategy_overview_tables(
     )
     snapshot = snapshot.loc[snapshot["portfolio"].isin(portfolios)].copy()
 
-    complete_overview = prepare_monitoring_overview(
-        bundle.monitoring["latest_overview"]
-    )
+    complete_overview = prepare_monitoring_overview(bundle.monitoring["latest_overview"])
     factors = complete_overview.loc[
         complete_overview["entity_type"].eq("Factor"),
         "entity",
@@ -125,12 +123,10 @@ def _render_portfolio_snapshot(
     snapshot,
 ) -> None:
     display = snapshot.assign(
-        drawdown=lambda data: (data["drawdown"] * 100.0),
-        annualised_volatility_126=(
-            lambda data: (data["annualised_volatility_126"] * 100.0)
-        ),
+        drawdown=lambda data: data["drawdown"] * 100.0,
+        annualised_volatility_126=(lambda data: data["annualised_volatility_126"] * 100.0),
         largest_absolute_sector_net_exposure=(
-            lambda data: (data["largest_absolute_sector_net_exposure"] * 100.0)
+            lambda data: data["largest_absolute_sector_net_exposure"] * 100.0
         ),
         minimum_capacity_usd_millions=(
             snapshot["minimum_trade_capacity_1pct_usd_63"] / 1_000_000.0
@@ -146,7 +142,7 @@ def _render_portfolio_snapshot(
             "rolling_sharpe_252",
             "annualised_volatility_126",
             "holdings_market_beta",
-            ("largest_absolute_sector_" "net_exposure"),
+            ("largest_absolute_sector_net_exposure"),
             "annualised_turnover_63",
             "minimum_capacity_usd_millions",
         ]
@@ -194,7 +190,7 @@ def _render_portfolio_snapshot(
                 "Holdings beta",
                 format="%.2f",
             ),
-            ("largest_absolute_sector_" "net_exposure"): st.column_config.NumberColumn(
+            ("largest_absolute_sector_net_exposure"): st.column_config.NumberColumn(
                 "Largest sector net",
                 format="%.1f%%",
             ),
@@ -575,9 +571,7 @@ def render_signal_health_page(bundle, start_date, end_date) -> None:
         end_date=end_date,
     )
     latest_dependence = dependence_history.iloc[-1]
-    latest_rolling_correlation = latest_dependence[
-        "rolling_factor_rank_correlation_252"
-    ]
+    latest_rolling_correlation = latest_dependence["rolling_factor_rank_correlation_252"]
 
     metric_columns = st.columns(4)
     metric_columns[0].metric("Factors monitored", len(snapshot))
@@ -591,11 +585,7 @@ def render_signal_health_page(bundle, start_date, end_date) -> None:
     )
     metric_columns[3].metric(
         "Latest rolling dependence",
-        (
-            "N/A"
-            if pd.isna(latest_rolling_correlation)
-            else f"{latest_rolling_correlation:.3f}"
-        ),
+        ("N/A" if pd.isna(latest_rolling_correlation) else f"{latest_rolling_correlation:.3f}"),
         help=f"As of {latest_dependence['date']:%Y-%m-%d}",
     )
 
@@ -665,9 +655,7 @@ def _build_latest_risk_snapshot(beta_history, concentration_history):
     )
 
     if not snapshot["beta_date"].eq(snapshot["concentration_date"]).all():
-        raise ValueError(
-            "Latest beta and concentration dates do not align by portfolio."
-        )
+        raise ValueError("Latest beta and concentration dates do not align by portfolio.")
 
     return (
         snapshot.rename(columns={"beta_date": "latest_date"})
@@ -894,9 +882,7 @@ def _build_latest_implementation_snapshot(
             }
         )
     )
-    liquidity_window = liquidity_history.groupby(
-        "portfolio", sort=False, as_index=False
-    ).agg(
+    liquidity_window = liquidity_history.groupby("portfolio", sort=False, as_index=False).agg(
         minimum_liquidity_coverage=("liquidity_coverage", "min"),
         incomplete_coverage_days=(
             "liquidity_coverage",
@@ -916,9 +902,7 @@ def _build_latest_implementation_snapshot(
     )
 
     if not snapshot["implementation_date"].eq(snapshot["liquidity_date"]).all():
-        raise ValueError(
-            "Latest implementation and liquidity dates do not align by " "portfolio."
-        )
+        raise ValueError("Latest implementation and liquidity dates do not align by portfolio.")
 
     return (
         snapshot.rename(columns={"implementation_date": "latest_date"})
@@ -929,16 +913,12 @@ def _build_latest_implementation_snapshot(
 
 def _render_implementation_snapshot(snapshot) -> None:
     display = snapshot.assign(
-        largest_trade_weight_63=lambda data: (data["largest_trade_weight_63"] * 100.0),
+        largest_trade_weight_63=lambda data: data["largest_trade_weight_63"] * 100.0,
         maximum_missing_return_weight_63=lambda data: (
             data["maximum_missing_return_weight_63"] * 100.0
         ),
-        latest_liquidity_coverage=lambda data: (
-            data["latest_liquidity_coverage"] * 100.0
-        ),
-        minimum_liquidity_coverage=lambda data: (
-            data["minimum_liquidity_coverage"] * 100.0
-        ),
+        latest_liquidity_coverage=lambda data: data["latest_liquidity_coverage"] * 100.0,
+        minimum_liquidity_coverage=lambda data: data["minimum_liquidity_coverage"] * 100.0,
     )[
         [
             "portfolio",
@@ -1363,29 +1343,3 @@ def render_attribution_page(
         width="stretch",
         config=PLOTLY_CONFIG,
     )
-
-
-def render_page_placeholder(
-    page: str,
-    portfolios: Sequence[str],
-    start_date,
-    end_date,
-) -> None:
-    """Render a filter-aware placeholder."""
-    st.header(page)
-
-    columns = st.columns(3)
-    columns[0].metric(
-        "Selected portfolios",
-        len(portfolios),
-    )
-    columns[1].metric(
-        "Start date",
-        f"{start_date:%Y-%m-%d}",
-    )
-    columns[2].metric(
-        "End date",
-        f"{end_date:%Y-%m-%d}",
-    )
-
-    st.info("This page will be assembled in the next dashboard round.")

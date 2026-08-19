@@ -22,6 +22,9 @@ from alpha_research.data_loader import load_parquet
 
 DEFAULT_STALE_AFTER_BUSINESS_DAYS = 5
 
+# Undated configuration and snapshot artifacts inherit a freshness reference
+# from the dated dataset that determines whether their contents are current.
+# These proxies affect freshness metadata only, never structural validation.
 DASHBOARD_FRESHNESS_PROXIES = {
     ("attribution", "target_weights"): ("attribution", "portfolio_daily"),
     ("monitoring", "latest_overview"): ("monitoring", "diagnostic_flags"),
@@ -61,7 +64,7 @@ class DashboardArtifactLoadError(RuntimeError):
 
 @dataclass(frozen=True)
 class DashboardArtifactBundle:
-    """Validated dashboard datasets together with readiness metadata."""
+    """Dashboard datasets with independent readiness and freshness metadata."""
 
     attribution: dict[str, pd.DataFrame]
     monitoring: dict[str, pd.DataFrame]
@@ -134,9 +137,7 @@ def _empty_metadata_row(
         "latest_observation_date": pd.NaT,
         "freshness_reference_date": pd.NaT,
         "file_modified_at_utc": (
-            pd.Timestamp.fromtimestamp(path.stat().st_mtime, tz="UTC")
-            if exists
-            else pd.NaT
+            pd.Timestamp.fromtimestamp(path.stat().st_mtime, tz="UTC") if exists else pd.NaT
         ),
         "age_business_days": pd.NA,
         "is_stale": pd.NA,
@@ -245,12 +246,8 @@ def _apply_freshness_proxies(
     for target_key, source_key in DASHBOARD_FRESHNESS_PROXIES.items():
         target_group, target_dataset = target_key
         source_group, source_dataset = source_key
-        target_mask = result["group"].eq(target_group) & result["dataset"].eq(
-            target_dataset
-        )
-        source_mask = result["group"].eq(source_group) & result["dataset"].eq(
-            source_dataset
-        )
+        target_mask = result["group"].eq(target_group) & result["dataset"].eq(target_dataset)
+        source_mask = result["group"].eq(source_group) & result["dataset"].eq(source_dataset)
 
         if not target_mask.any() or not source_mask.any():
             continue
@@ -290,6 +287,10 @@ def load_dashboard_artifacts(
     invalid. Use ``has_stale_data`` to surface a dashboard warning. In
     non-strict mode, missing or invalid artifacts are returned as metadata
     errors so that the UI can explain the problem instead of failing opaquely.
+
+    ``as_of_date`` is the reference date for artifact freshness only. Metric-
+    specific dates embedded in the datasets, including predictive-statistic
+    as-of dates, are loaded unchanged for the analytics layer to interpret.
     """
     if (
         isinstance(stale_after_business_days, bool)

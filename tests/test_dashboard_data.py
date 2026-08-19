@@ -55,9 +55,7 @@ def dashboard_datasets():
                     "forward_ret_1d": asset_return,
                     "forward_ret_5d": score / 1_000.0,
                     "beta_126": 0.8 + ticker_number / 100.0,
-                    "sector": (
-                        "Technology" if ticker_number % 2 == 0 else "Financials"
-                    ),
+                    "sector": ("Technology" if ticker_number % 2 == 0 else "Financials"),
                     "dollar_volume": 1_000_000.0 + ticker_number * 10_000.0,
                 }
             )
@@ -121,18 +119,14 @@ def test_dashboard_loader_returns_validated_bundle_and_metadata(
     assert bundle.metadata["group_valid"].all()
     assert set(bundle.metadata["status"]) == {"READY", "UNDATED"}
 
-    selected = bundle.metadata.loc[
-        bundle.metadata["dataset"].eq("selected_implementations")
-    ].iloc[0]
-    signal_health = bundle.metadata.loc[
-        bundle.metadata["dataset"].eq("signal_health")
-    ].iloc[0]
+    selected = bundle.metadata.loc[bundle.metadata["dataset"].eq("selected_implementations")].iloc[
+        0
+    ]
+    signal_health = bundle.metadata.loc[bundle.metadata["dataset"].eq("signal_health")].iloc[0]
 
     assert pd.isna(selected["latest_observation_date"])
     assert pd.isna(selected["is_stale"])
-    assert signal_health["rows"] == len(
-        dashboard_datasets["monitoring"]["signal_health"]
-    )
+    assert signal_health["rows"] == len(dashboard_datasets["monitoring"]["signal_health"])
     assert signal_health["latest_observation_date"] == latest_input_date
 
 
@@ -154,15 +148,44 @@ def test_dashboard_loader_uses_proxy_freshness_dates(
     diagnostic_flags = metadata.loc["diagnostic_flags"]
 
     assert target_weights["latest_observation_date"] < portfolio_daily["end_date"]
-    assert (
-        target_weights["freshness_reference_date"]
-        == portfolio_daily["latest_observation_date"]
-    )
+    assert target_weights["freshness_reference_date"] == portfolio_daily["latest_observation_date"]
     assert pd.isna(latest_overview["latest_observation_date"])
     assert (
-        latest_overview["freshness_reference_date"]
-        == diagnostic_flags["latest_observation_date"]
+        latest_overview["freshness_reference_date"] == diagnostic_flags["latest_observation_date"]
     )
+
+
+def test_dashboard_loader_preserves_predictive_statistic_dates(
+    dashboard_artifact_directories,
+):
+    processed_directory, monitoring_directory = dashboard_artifact_directories
+    signal_health_path = (
+        monitoring_directory / MONITORING_ARTIFACT_CONTRACTS["signal_health"].filename
+    )
+    expected = pd.read_parquet(signal_health_path)
+    latest_date = expected["date"].max()
+    predictive_columns = ("ic", "rolling_mean_ic_252")
+    expected.loc[
+        expected["date"].eq(latest_date),
+        list(predictive_columns),
+    ] = np.nan
+    expected.to_parquet(signal_health_path, index=False)
+
+    bundle = load_dashboard_artifacts(
+        processed_directory,
+        monitoring_directory,
+        as_of_date=latest_date,
+    )
+    actual = bundle.monitoring["signal_health"]
+
+    assert actual["date"].max() == latest_date
+
+    for column in predictive_columns:
+        expected_as_of_date = expected.loc[expected[column].notna(), "date"].max()
+        actual_as_of_date = actual.loc[actual[column].notna(), "date"].max()
+
+        assert actual_as_of_date == expected_as_of_date
+        assert actual_as_of_date < latest_date
 
 
 def test_dashboard_loader_marks_dated_artifacts_as_stale(
@@ -178,9 +201,7 @@ def test_dashboard_loader_marks_dated_artifacts_as_stale(
         as_of_date=latest_input_date + pd.offsets.BDay(10),
         stale_after_business_days=5,
     )
-    freshness_metadata = bundle.metadata.loc[
-        bundle.metadata["freshness_reference_date"].notna()
-    ]
+    freshness_metadata = bundle.metadata.loc[bundle.metadata["freshness_reference_date"].notna()]
 
     assert bundle.is_ready
     assert bundle.has_stale_data
@@ -192,9 +213,7 @@ def test_dashboard_loader_reports_missing_artifacts(
     dashboard_artifact_directories,
 ):
     processed_directory, monitoring_directory = dashboard_artifact_directories
-    missing_path = (
-        monitoring_directory / MONITORING_ARTIFACT_CONTRACTS["signal_health"].filename
-    )
+    missing_path = monitoring_directory / MONITORING_ARTIFACT_CONTRACTS["signal_health"].filename
     missing_path.unlink()
 
     bundle = load_dashboard_artifacts(
@@ -221,9 +240,7 @@ def test_dashboard_loader_reports_unreadable_parquet(
     dashboard_artifact_directories,
 ):
     processed_directory, monitoring_directory = dashboard_artifact_directories
-    invalid_path = (
-        monitoring_directory / MONITORING_ARTIFACT_CONTRACTS["signal_health"].filename
-    )
+    invalid_path = monitoring_directory / MONITORING_ARTIFACT_CONTRACTS["signal_health"].filename
     invalid_path.write_text("not a parquet file", encoding="utf-8")
 
     bundle = load_dashboard_artifacts(
@@ -243,9 +260,7 @@ def test_dashboard_loader_reports_malformed_artifact(
     dashboard_artifact_directories,
 ):
     processed_directory, monitoring_directory = dashboard_artifact_directories
-    invalid_path = (
-        monitoring_directory / MONITORING_ARTIFACT_CONTRACTS["signal_health"].filename
-    )
+    invalid_path = monitoring_directory / MONITORING_ARTIFACT_CONTRACTS["signal_health"].filename
     malformed = pd.read_parquet(invalid_path).drop(columns="ic")
     malformed.to_parquet(invalid_path, index=False)
 
