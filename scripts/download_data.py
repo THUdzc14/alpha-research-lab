@@ -1,3 +1,5 @@
+"""Download and normalise the raw equity and benchmark market-data panels."""
+
 from __future__ import annotations
 
 import argparse
@@ -9,6 +11,18 @@ from alpha_research.config.paths import RAW_DATA_DIR
 from alpha_research.data_loader import save_parquet, validate_ohlcv_panel
 from alpha_research.universe import get_universe
 
+YFINANCE_FIELDS = ("Open", "High", "Low", "Close", "Adj Close", "Volume")
+RAW_PRICE_COLUMNS = (
+    "date",
+    "ticker",
+    "open",
+    "high",
+    "low",
+    "close",
+    "adj_close",
+    "volume",
+)
+
 
 def _normalise_yfinance_output(data: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     """Convert yfinance's wide multi-index output into a tidy OHLCV panel."""
@@ -18,9 +32,8 @@ def _normalise_yfinance_output(data: pd.DataFrame, tickers: list[str]) -> pd.Dat
     # yfinance can return either [field, ticker] or [ticker, field] multi-index columns.
     if isinstance(data.columns, pd.MultiIndex):
         level0 = set(map(str, data.columns.get_level_values(0)))
-        expected_fields = {"Open", "High", "Low", "Close", "Adj Close", "Volume"}
 
-        if expected_fields.intersection(level0):
+        if set(YFINANCE_FIELDS).intersection(level0):
             data = data.stack(level=1, future_stack=True).reset_index()
             ticker_col = "Ticker"
         else:
@@ -44,12 +57,11 @@ def _normalise_yfinance_output(data: pd.DataFrame, tickers: list[str]) -> pd.Dat
     }
     data = data.rename(columns=rename_map)
 
-    required = ["date", "ticker", "open", "high", "low", "close", "adj_close", "volume"]
-    missing = set(required) - set(data.columns)
+    missing = set(RAW_PRICE_COLUMNS) - set(data.columns)
     if missing:
         raise ValueError(f"Missing columns after normalisation: {sorted(missing)}")
 
-    data = data[required].copy()
+    data = data[list(RAW_PRICE_COLUMNS)].copy()
     data["date"] = pd.to_datetime(data["date"]).dt.date
     data["ticker"] = data["ticker"].astype(str)
     data = data.dropna(subset=["adj_close"])
@@ -57,9 +69,8 @@ def _normalise_yfinance_output(data: pd.DataFrame, tickers: list[str]) -> pd.Dat
     return data
 
 
-def download_prices(
-    tickers: list[str], start: str, end: str | None = None
-) -> pd.DataFrame:
+def download_prices(tickers: list[str], start: str, end: str | None = None) -> pd.DataFrame:
+    """Download one adjusted and unadjusted OHLCV panel through yfinance."""
     raw = yf.download(
         tickers=tickers,
         start=start,
