@@ -64,16 +64,19 @@ def test_prepare_signal_health_history_filters_and_preserves_factor_order(
     signal_health,
 ):
     start_date = pd.Timestamp("2026-06-30")
+    end_date = pd.Timestamp("2026-07-01")
     history = prepare_signal_health_history(
         signal_health,
         factors=["Realised Volatility", "Momentum"],
         start_date=start_date,
+        end_date=end_date,
     )
 
     assert tuple(history.columns) == SIGNAL_HEALTH_HISTORY_COLUMNS
     assert list(pd.unique(history["factor"])) == ["Realised Volatility", "Momentum"]
     assert history["date"].min() == start_date
-    assert history.groupby("factor")["date"].size().eq(3).all()
+    assert history["date"].max() == end_date
+    assert history.groupby("factor")["date"].size().eq(2).all()
 
 
 def test_prepare_factor_dependence_history_filters_and_sorts(factor_dependence):
@@ -105,9 +108,7 @@ def test_latest_factor_snapshot_combines_status_and_latest_metrics(
     assert snapshot["signal_status"].tolist() == ["WARNING", "PASS"]
     assert snapshot.loc[0, "ic"] == pytest.approx(0.023)
     assert snapshot["ic_as_of_date"].eq(pd.Timestamp("2026-07-02")).all()
-    assert (
-        snapshot["rolling_mean_ic_252_as_of_date"].eq(pd.Timestamp("2026-07-02")).all()
-    )
+    assert snapshot["rolling_mean_ic_252_as_of_date"].eq(pd.Timestamp("2026-07-02")).all()
 
 
 def test_latest_factor_snapshot_dates_trailing_predictive_metrics(
@@ -117,9 +118,10 @@ def test_latest_factor_snapshot_dates_trailing_predictive_metrics(
     latest_date = signal_health["date"].max()
     trailing = signal_health.copy()
 
+    trailing.loc[trailing["date"].eq(latest_date), "ic"] = float("nan")
     trailing.loc[
-        trailing["date"].eq(latest_date),
-        ["ic", "rolling_mean_ic_252"],
+        trailing["date"].ge(pd.Timestamp("2026-07-01")),
+        "rolling_mean_ic_252",
     ] = float("nan")
 
     snapshot = build_latest_factor_snapshot(
@@ -133,8 +135,42 @@ def test_latest_factor_snapshot_dates_trailing_predictive_metrics(
     assert momentum["ic_as_of_date"] == pd.Timestamp("2026-07-01")
     assert momentum["ic"] == pytest.approx(0.012)
 
-    assert momentum["rolling_mean_ic_252_as_of_date"] == pd.Timestamp("2026-07-01")
+    assert momentum["rolling_mean_ic_252_as_of_date"] == pd.Timestamp("2026-06-30")
     assert momentum["rolling_mean_ic_252"] == pytest.approx(0.02)
+
+
+def test_latest_factor_snapshot_marks_unavailable_predictive_metric(
+    signal_health,
+    latest_overview,
+):
+    unavailable = signal_health.copy()
+    unavailable["ic"] = float("nan")
+
+    snapshot = build_latest_factor_snapshot(latest_overview, unavailable)
+
+    assert snapshot["latest_date"].eq(signal_health["date"].max()).all()
+    assert snapshot["ic_as_of_date"].isna().all()
+    assert snapshot["ic"].isna().all()
+    assert snapshot["rolling_mean_ic_252_as_of_date"].notna().all()
+
+
+@pytest.mark.parametrize(
+    ("factors", "error_type", "message"),
+    (
+        ("Momentum", TypeError, "sequence of factor names"),
+        ([], ValueError, "must not be empty"),
+        (["Momentum", "Momentum"], ValueError, "unique names"),
+        (["Missing"], ValueError, "missing factors"),
+    ),
+)
+def test_prepare_signal_health_history_rejects_invalid_factor_selections(
+    signal_health,
+    factors,
+    error_type,
+    message,
+):
+    with pytest.raises(error_type, match=message):
+        prepare_signal_health_history(signal_health, factors=factors)
 
 
 def test_signal_analytics_reject_malformed_inputs(
@@ -157,6 +193,12 @@ def test_signal_analytics_reject_malformed_inputs(
 
     with pytest.raises(ValueError, match="duplicate dates"):
         prepare_factor_dependence_history(duplicated_dependence)
+
+    with pytest.raises(ValueError, match="No factor-dependence observations"):
+        prepare_factor_dependence_history(
+            factor_dependence,
+            start_date="2027-01-01",
+        )
 
     incomplete_overview = latest_overview.loc[latest_overview["entity"].ne("Momentum")]
 

@@ -176,3 +176,23 @@ def test_dashboard_diagnostics_reject_malformed_inputs(
             flags,
             statuses=["ALERT"],
         )
+
+
+@pytest.mark.parametrize(
+    ("statuses", "error_type", "message"),
+    (
+        ("WARNING", TypeError, "sequence of labels"),
+        ([], ValueError, "must not be empty"),
+        (["PASS", "PASS"], ValueError, "unique labels"),
+    ),
+)
+def test_dashboard_diagnostics_reject_invalid_label_filters(
+    diagnostic_inputs,
+    statuses,
+    error_type,
+    message,
+):
+    flags, _ = diagnostic_inputs
+
+    with pytest.raises(error_type, match=message):
+        prepare_diagnostic_table(flags, statuses=statuses)

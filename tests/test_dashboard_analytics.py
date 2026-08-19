@@ -87,8 +87,7 @@ def latest_snapshot_inputs(performance_risk):
         )
 
     performance_state = performance_risk.loc[
-        performance_risk["portfolio"].isin(portfolios)
-        & performance_risk["date"].isin(dates)
+        performance_risk["portfolio"].isin(portfolios) & performance_risk["date"].isin(dates)
     ].copy()
     beta = build_state(
         {
@@ -128,20 +127,26 @@ def latest_snapshot_inputs(performance_risk):
 
 
 def test_prepare_performance_history_filters_orders_and_rebases(performance_risk):
-    start_date = performance_risk["date"].drop_duplicates().sort_values().iloc[1]
+    dates = performance_risk["date"].drop_duplicates().sort_values()
+    start_date = dates.iloc[1]
+    end_date = dates.iloc[2]
     history = prepare_performance_history(
         performance_risk,
         portfolios=["Beta", "Alpha"],
         start_date=start_date,
+        end_date=end_date,
     )
 
     assert list(pd.unique(history["portfolio"])) == ["Beta", "Alpha"]
     assert history["date"].min() == start_date
+    assert history["date"].max() == end_date
+    assert history.groupby("portfolio")["date"].size().eq(2).all()
     assert history.groupby("portfolio")["indexed_wealth"].first().eq(1.0).all()
 
     expected_drawdown = performance_risk.loc[
         performance_risk["portfolio"].isin(["Beta", "Alpha"])
-        & performance_risk["date"].ge(start_date),
+        & performance_risk["date"].ge(start_date)
+        & performance_risk["date"].le(end_date),
         ["portfolio", "date", "drawdown"],
     ]
     drawdown_audit = history[["portfolio", "date", "drawdown"]].merge(
@@ -171,15 +176,9 @@ def test_build_performance_summary_uses_shared_metrics(performance_risk):
 
     assert list(summary.index) == ["Alpha", "SPY"]
     assert summary.loc["Alpha", "observations"] == 4
-    assert summary.loc["Alpha", "annualised_return"] == pytest.approx(
-        expected["annualised_return"]
-    )
-    assert summary.loc["Alpha", "sharpe_ratio"] == pytest.approx(
-        expected["sharpe_ratio"]
-    )
-    assert summary.loc["Alpha", "maximum_drawdown"] == pytest.approx(
-        expected["maximum_drawdown"]
-    )
+    assert summary.loc["Alpha", "annualised_return"] == pytest.approx(expected["annualised_return"])
+    assert summary.loc["Alpha", "sharpe_ratio"] == pytest.approx(expected["sharpe_ratio"])
+    assert summary.loc["Alpha", "maximum_drawdown"] == pytest.approx(expected["maximum_drawdown"])
 
 
 def test_prepare_performance_history_rejects_invalid_filters(performance_risk):
@@ -194,6 +193,27 @@ def test_prepare_performance_history_rejects_invalid_filters(performance_risk):
         prepare_performance_history(
             performance_risk,
             portfolios=["Missing"],
+        )
+
+
+@pytest.mark.parametrize(
+    ("portfolios", "error_type", "message"),
+    (
+        ("Alpha", TypeError, "sequence of portfolio names"),
+        ([], ValueError, "must not be empty"),
+        (["Alpha", "Alpha"], ValueError, "unique names"),
+    ),
+)
+def test_prepare_performance_history_rejects_invalid_portfolio_selections(
+    performance_risk,
+    portfolios,
+    error_type,
+    message,
+):
+    with pytest.raises(error_type, match=message):
+        prepare_performance_history(
+            performance_risk,
+            portfolios=portfolios,
         )
 
 
@@ -219,4 +239,17 @@ def test_latest_portfolio_snapshot_rejects_misaligned_dates(latest_snapshot_inpu
     invalid_inputs["beta"] = invalid_beta
 
     with pytest.raises(ValueError, match="dates do not align"):
+        build_latest_portfolio_snapshot(**invalid_inputs)
+
+
+def test_latest_portfolio_snapshot_rejects_duplicate_state_rows(
+    latest_snapshot_inputs,
+):
+    invalid_inputs = dict(latest_snapshot_inputs)
+    invalid_inputs["beta"] = pd.concat(
+        [invalid_inputs["beta"], invalid_inputs["beta"].iloc[[0]]],
+        ignore_index=True,
+    )
+
+    with pytest.raises(ValueError, match="duplicate portfolio-date"):
         build_latest_portfolio_snapshot(**invalid_inputs)

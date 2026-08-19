@@ -246,46 +246,70 @@ def _normalise_date_bound(value: Any | None, *, name: str) -> pd.Timestamp | Non
     return result.normalize()
 
 
+def _resolve_ordered_labels(
+    data: pd.DataFrame,
+    values: Sequence[str] | None,
+    *,
+    column: str,
+    selection_name: str,
+    label_name: str,
+    data_name: str,
+) -> list[str]:
+    """Resolve a validated label selection without losing requested order."""
+    available = list(pd.unique(data[column].dropna()))
+
+    if values is None:
+        return available
+
+    if isinstance(values, str):
+        raise TypeError(f"{selection_name} must be a sequence of {label_name} names.")
+
+    selected = list(values)
+
+    if not selected:
+        raise ValueError(f"{selection_name} must not be empty.")
+
+    if len(selected) != len(set(selected)):
+        raise ValueError(f"{selection_name} must contain unique names.")
+
+    missing = sorted(set(selected) - set(available))
+
+    if missing:
+        raise ValueError(f"{data_name} is missing {selection_name}: {missing}")
+
+    return selected
+
+
 def _resolve_portfolios(
     data: pd.DataFrame,
     portfolios: Sequence[str] | None,
     *,
     name: str,
 ) -> list[str]:
-    available = list(pd.unique(data["portfolio"].dropna()))
-
-    if portfolios is None:
-        return available
-
-    if isinstance(portfolios, str):
-        raise TypeError("portfolios must be a sequence of portfolio names.")
-
-    selected = list(portfolios)
-
-    if not selected:
-        raise ValueError("portfolios must not be empty.")
-
-    if len(selected) != len(set(selected)):
-        raise ValueError("portfolios must contain unique names.")
-
-    missing = sorted(set(selected) - set(available))
-
-    if missing:
-        raise ValueError(f"{name} is missing portfolios: {missing}")
-
-    return selected
+    return _resolve_ordered_labels(
+        data,
+        portfolios,
+        column="portfolio",
+        selection_name="portfolios",
+        label_name="portfolio",
+        data_name=name,
+    )
 
 
-def _sort_portfolios(
+def _sort_by_label_order(
     data: pd.DataFrame,
-    portfolios: Sequence[str],
+    labels: Sequence[str],
+    *,
+    column: str,
 ) -> pd.DataFrame:
-    positions = {portfolio: position for position, portfolio in enumerate(portfolios)}
-    result = data.assign(_portfolio_order=data["portfolio"].map(positions))
+    """Sort dated rows by a caller-supplied label order, then by date."""
+    positions = {label: position for position, label in enumerate(labels)}
+    order_column = "_dashboard_label_order"
+    result = data.assign(**{order_column: data[column].map(positions)})
 
     return (
-        result.sort_values(["_portfolio_order", "date"], kind="stable")
-        .drop(columns="_portfolio_order")
+        result.sort_values([order_column, "date"], kind="stable")
+        .drop(columns=order_column)
         .reset_index(drop=True)
     )
 
@@ -297,7 +321,7 @@ def prepare_performance_history(
     start_date: Any | None = None,
     end_date: Any | None = None,
 ) -> pd.DataFrame:
-    """Prepare validated, filtered performance data for dashboard charts."""
+    """Prepare performance data using inclusive dates and requested order."""
     required_columns = set(PERFORMANCE_HISTORY_COLUMNS) - {"indexed_wealth"}
     _require_columns(
         performance_risk,
@@ -339,21 +363,20 @@ def prepare_performance_history(
 
     remaining_portfolios = set(prepared["portfolio"])
     missing_after_filter = [
-        portfolio
-        for portfolio in selected_portfolios
-        if portfolio not in remaining_portfolios
+        portfolio for portfolio in selected_portfolios if portfolio not in remaining_portfolios
     ]
 
     if missing_after_filter:
         raise ValueError(
-            "No performance observations remain for portfolios: "
-            f"{missing_after_filter}"
+            f"No performance observations remain for portfolios: {missing_after_filter}"
         )
 
-    prepared = _sort_portfolios(prepared, selected_portfolios)
-    first_wealth = prepared.groupby("portfolio", sort=False)["wealth"].transform(
-        "first"
+    prepared = _sort_by_label_order(
+        prepared,
+        selected_portfolios,
+        column="portfolio",
     )
+    first_wealth = prepared.groupby("portfolio", sort=False)["wealth"].transform("first")
 
     if first_wealth.isna().any() or first_wealth.eq(0.0).any():
         raise ValueError("performance_risk contains an invalid initial wealth value.")
@@ -421,9 +444,7 @@ def _latest_portfolio_rows(
         raise ValueError(f"{name} contains duplicate portfolio-date rows.")
 
     missing_portfolios = [
-        portfolio
-        for portfolio in portfolios
-        if portfolio not in set(prepared["portfolio"])
+        portfolio for portfolio in portfolios if portfolio not in set(prepared["portfolio"])
     ]
 
     if missing_portfolios:
@@ -489,17 +510,13 @@ def build_latest_portfolio_snapshot(
         raise ValueError("latest_overview contains duplicate portfolio rows.")
 
     missing_overviews = [
-        portfolio
-        for portfolio in portfolios
-        if portfolio not in set(overview["portfolio"])
+        portfolio for portfolio in portfolios if portfolio not in set(overview["portfolio"])
     ]
 
     if missing_overviews:
         raise ValueError(f"latest_overview is missing portfolios: {missing_overviews}")
 
-    snapshot = snapshot.merge(
-        overview, on="portfolio", how="left", validate="one_to_one"
-    )
+    snapshot = snapshot.merge(overview, on="portfolio", how="left", validate="one_to_one")
     state_inputs = {
         "performance_risk": (
             performance_risk,
@@ -561,9 +578,7 @@ def build_latest_portfolio_snapshot(
 
     if not aligned_dates.all():
         misaligned_portfolios = snapshot.loc[~aligned_dates, "portfolio"].tolist()
-        raise ValueError(
-            "Latest portfolio-state dates do not align for: " f"{misaligned_portfolios}"
-        )
+        raise ValueError(f"Latest portfolio-state dates do not align for: {misaligned_portfolios}")
 
     snapshot["latest_date"] = snapshot["performance_risk_date"]
 
@@ -615,28 +630,14 @@ def _resolve_factors(
     *,
     name: str,
 ) -> list[str]:
-    available = list(pd.unique(data["factor"].dropna()))
-
-    if factors is None:
-        return available
-
-    if isinstance(factors, str):
-        raise TypeError("factors must be a sequence of factor names.")
-
-    selected = list(factors)
-
-    if not selected:
-        raise ValueError("factors must not be empty.")
-
-    if len(selected) != len(set(selected)):
-        raise ValueError("factors must contain unique names.")
-
-    missing = sorted(set(selected) - set(available))
-
-    if missing:
-        raise ValueError(f"{name} is missing factors: {missing}")
-
-    return selected
+    return _resolve_ordered_labels(
+        data,
+        factors,
+        column="factor",
+        selection_name="factors",
+        label_name="factor",
+        data_name=name,
+    )
 
 
 def _filter_dashboard_dates(
@@ -646,6 +647,7 @@ def _filter_dashboard_dates(
     start_date: Any | None,
     end_date: Any | None,
 ) -> pd.DataFrame:
+    """Apply an inclusive dashboard date window and require observations."""
     normalised_start = _normalise_date_bound(start_date, name="start_date")
     normalised_end = _normalise_date_bound(end_date, name="end_date")
 
@@ -701,9 +703,7 @@ def _prepare_portfolio_monitoring_history(
     if prepared.duplicated(["portfolio", "date"]).any():
         raise ValueError(f"{name} contains duplicate portfolio-date rows.")
 
-    metric_columns = [
-        column for column in columns if column not in {"date", "portfolio"}
-    ]
+    metric_columns = [column for column in columns if column not in {"date", "portfolio"}]
 
     for column in metric_columns:
         numeric_values = pd.to_numeric(
@@ -726,9 +726,7 @@ def _prepare_portfolio_monitoring_history(
 
     remaining_portfolios = set(prepared["portfolio"])
     missing_after_filter = [
-        portfolio
-        for portfolio in portfolio_order
-        if portfolio not in remaining_portfolios
+        portfolio for portfolio in portfolio_order if portfolio not in remaining_portfolios
     ]
 
     if missing_after_filter:
@@ -737,7 +735,11 @@ def _prepare_portfolio_monitoring_history(
             f"for portfolios: {missing_after_filter}"
         )
 
-    return _sort_portfolios(prepared, portfolio_order).loc[:, columns]
+    return _sort_by_label_order(
+        prepared,
+        portfolio_order,
+        column="portfolio",
+    ).loc[:, columns]
 
 
 def prepare_beta_history(
@@ -856,9 +858,7 @@ def _filter_dashboard_labels(
     if selected is None:
         return data
 
-    available = (
-        set(data[column].dropna()) if available_labels is None else available_labels
-    )
+    available = set(data[column].dropna()) if available_labels is None else available_labels
     missing = sorted(set(selected) - available)
 
     if missing:
@@ -955,14 +955,10 @@ def prepare_monitoring_overview(
         raise ValueError("latest_overview diagnostic counts do not reconcile.")
 
     allowed_statuses = set(STATUS_SEVERITY)
-    unknown_overall = sorted(
-        set(prepared["overall_status"].dropna()) - allowed_statuses
-    )
+    unknown_overall = sorted(set(prepared["overall_status"].dropna()) - allowed_statuses)
 
     if unknown_overall or prepared["overall_status"].isna().any():
-        raise ValueError(
-            "latest_overview contains unknown " f"overall statuses: {unknown_overall}"
-        )
+        raise ValueError(f"latest_overview contains unknown overall statuses: {unknown_overall}")
 
     expected_overall = pd.Series(
         "PASS",
@@ -985,29 +981,26 @@ def prepare_monitoring_overview(
         unknown = sorted(set(prepared[column].dropna()) - allowed_category_statuses)
 
         if unknown or prepared[column].isna().any():
-            raise ValueError(
-                f"latest_overview.{column} contains " f"unknown statuses: {unknown}"
-            )
+            raise ValueError(f"latest_overview.{column} contains unknown statuses: {unknown}")
 
     available_labels = {
         "entity_type": set(prepared["entity_type"].dropna()),
         "entity": set(prepared["entity"].dropna()),
     }
 
-    prepared = _filter_dashboard_labels(
-        prepared,
-        column="entity_type",
-        values=entity_types,
-        name="entity_types",
-        available_labels=available_labels["entity_type"],
+    filters = (
+        ("entity_type", entity_types, "entity_types"),
+        ("entity", entities, "entities"),
     )
-    prepared = _filter_dashboard_labels(
-        prepared,
-        column="entity",
-        values=entities,
-        name="entities",
-        available_labels=available_labels["entity"],
-    )
+
+    for column, values, name in filters:
+        prepared = _filter_dashboard_labels(
+            prepared,
+            column=column,
+            values=values,
+            name=name,
+            available_labels=available_labels[column],
+        )
 
     return prepared.loc[:, MONITORING_OVERVIEW_COLUMNS].reset_index(drop=True)
 
@@ -1058,9 +1051,7 @@ def prepare_portfolio_attribution_history(
         not pd.api.types.is_bool_dtype(prepared["is_rebalance"])
         or prepared["is_rebalance"].isna().any()
     ):
-        raise ValueError(
-            "portfolio_daily.is_rebalance must contain non-missing Boolean values."
-        )
+        raise ValueError("portfolio_daily.is_rebalance must contain non-missing Boolean values.")
 
     numeric_columns = [
         column
@@ -1092,18 +1083,19 @@ def prepare_portfolio_attribution_history(
     )
     remaining_portfolios = set(prepared["portfolio"])
     missing_after_filter = [
-        portfolio
-        for portfolio in portfolio_order
-        if portfolio not in remaining_portfolios
+        portfolio for portfolio in portfolio_order if portfolio not in remaining_portfolios
     ]
 
     if missing_after_filter:
         raise ValueError(
-            "No portfolio-attribution observations remain "
-            f"for portfolios: {missing_after_filter}"
+            f"No portfolio-attribution observations remain for portfolios: {missing_after_filter}"
         )
 
-    prepared = _sort_portfolios(prepared, portfolio_order)
+    prepared = _sort_by_label_order(
+        prepared,
+        portfolio_order,
+        column="portfolio",
+    )
 
     side_difference = (
         prepared["long_return"] + prepared["short_return"] - prepared["gross_return"]
@@ -1183,21 +1175,11 @@ def build_side_cost_attribution_summary(
                 "cumulative_gross_contribution": (data["gross_return"].sum()),
                 "cumulative_transaction_cost": (data["transaction_cost"].sum()),
                 "cumulative_net_contribution": (data["net_return"].sum()),
-                "annualised_long_contribution": (
-                    data["long_return"].mean() * periods_per_year
-                ),
-                "annualised_short_contribution": (
-                    data["short_return"].mean() * periods_per_year
-                ),
-                "annualised_gross_contribution": (
-                    data["gross_return"].mean() * periods_per_year
-                ),
-                "annualised_cost_drag": (
-                    data["transaction_cost"].mean() * periods_per_year
-                ),
-                "annualised_net_contribution": (
-                    data["net_return"].mean() * periods_per_year
-                ),
+                "annualised_long_contribution": (data["long_return"].mean() * periods_per_year),
+                "annualised_short_contribution": (data["short_return"].mean() * periods_per_year),
+                "annualised_gross_contribution": (data["gross_return"].mean() * periods_per_year),
+                "annualised_cost_drag": (data["transaction_cost"].mean() * periods_per_year),
+                "annualised_net_contribution": (data["net_return"].mean() * periods_per_year),
                 "average_daily_turnover": (data["turnover"].mean()),
                 "average_rebalance_turnover": (rebalance_data["turnover"].mean()),
             }
@@ -1254,9 +1236,7 @@ def build_security_contribution_summary(
         raise ValueError("security_daily contains missing key values.")
 
     if prepared.duplicated(["portfolio", "date", "ticker"]).any():
-        raise ValueError(
-            "security_daily contains duplicate portfolio-date-ticker rows."
-        )
+        raise ValueError("security_daily contains duplicate portfolio-date-ticker rows.")
 
     numeric_columns = [
         column
@@ -1381,7 +1361,7 @@ def prepare_signal_health_history(
     start_date: Any | None = None,
     end_date: Any | None = None,
 ) -> pd.DataFrame:
-    """Prepare retained-signal histories for dashboard tables and figures."""
+    """Prepare retained-signal history using inclusive dates and factor order."""
     _require_columns(
         signal_health,
         set(SIGNAL_HEALTH_HISTORY_COLUMNS),
@@ -1411,25 +1391,18 @@ def prepare_signal_health_history(
         end_date=end_date,
     )
     remaining_factors = set(prepared["factor"])
-    missing_after_filter = [
-        factor for factor in factor_order if factor not in remaining_factors
-    ]
+    missing_after_filter = [factor for factor in factor_order if factor not in remaining_factors]
 
     if missing_after_filter:
         raise ValueError(
-            "No signal-health observations remain for factors: "
-            f"{missing_after_filter}"
+            f"No signal-health observations remain for factors: {missing_after_filter}"
         )
 
-    positions = {factor: position for position, factor in enumerate(factor_order)}
-    prepared["_factor_order"] = prepared["factor"].map(positions)
-
-    return (
-        prepared.sort_values(["_factor_order", "date"], kind="stable")
-        .drop(columns="_factor_order")
-        .reset_index(drop=True)
-        .loc[:, SIGNAL_HEALTH_HISTORY_COLUMNS]
-    )
+    return _sort_by_label_order(
+        prepared,
+        factor_order,
+        column="factor",
+    ).loc[:, SIGNAL_HEALTH_HISTORY_COLUMNS]
 
 
 def prepare_factor_dependence_history(
@@ -1438,7 +1411,7 @@ def prepare_factor_dependence_history(
     start_date: Any | None = None,
     end_date: Any | None = None,
 ) -> pd.DataFrame:
-    """Prepare retained-factor dependence history for dashboard display."""
+    """Prepare factor-dependence history using an inclusive date window."""
     _require_columns(
         factor_dependence,
         set(FACTOR_DEPENDENCE_HISTORY_COLUMNS),
@@ -1527,9 +1500,7 @@ def build_latest_factor_snapshot(
     if overview["factor"].duplicated().any():
         raise ValueError("latest_overview contains duplicate factor rows.")
 
-    missing_overviews = [
-        factor for factor in factor_order if factor not in set(overview["factor"])
-    ]
+    missing_overviews = [factor for factor in factor_order if factor not in set(overview["factor"])]
 
     if missing_overviews:
         raise ValueError(f"latest_overview is missing factors: {missing_overviews}")
