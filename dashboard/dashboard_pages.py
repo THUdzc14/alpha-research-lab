@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 import pandas as pd
 import streamlit as st
+from plotly.graph_objects import Figure
 
 from alpha_research.dashboard_analytics import (
     build_latest_portfolio_snapshot,
@@ -24,6 +25,7 @@ from alpha_research.dashboard_analytics import (
     build_side_cost_attribution_summary,
     prepare_portfolio_attribution_history,
 )
+from alpha_research.dashboard_data import DashboardArtifactBundle
 from alpha_research.visualisation import (
     build_cumulative_performance_figure,
     build_diagnostic_count_figure,
@@ -48,10 +50,21 @@ PLOTLY_CONFIG = {
 }
 
 
+def _render_figure_grid(figures: Sequence[Figure]) -> None:
+    columns = st.columns(2)
+
+    for position, figure in enumerate(figures):
+        columns[position % 2].plotly_chart(
+            figure,
+            width="stretch",
+            config=PLOTLY_CONFIG,
+        )
+
+
 def _build_strategy_overview_tables(
-    bundle,
+    bundle: DashboardArtifactBundle,
     portfolios: Sequence[str],
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     snapshot = build_latest_portfolio_snapshot(
         bundle.attribution["selected_implementations"],
         bundle.monitoring["latest_overview"],
@@ -95,8 +108,8 @@ def _build_strategy_overview_tables(
 
 
 def _render_overview_metrics(
-    snapshot,
-    status_summary,
+    snapshot: pd.DataFrame,
+    status_summary: pd.DataFrame,
 ) -> None:
     latest_date = snapshot["latest_date"].max()
     columns = st.columns(4)
@@ -120,7 +133,7 @@ def _render_overview_metrics(
 
 
 def _render_portfolio_snapshot(
-    snapshot,
+    snapshot: pd.DataFrame,
 ) -> None:
     display = snapshot.assign(
         drawdown=lambda data: data["drawdown"] * 100.0,
@@ -209,7 +222,7 @@ def _render_portfolio_snapshot(
 
 
 def _render_active_diagnostics(
-    active_diagnostics,
+    active_diagnostics: pd.DataFrame,
 ) -> None:
     if active_diagnostics.empty:
         st.success("No active warnings, breaches, or unavailable diagnostics.")
@@ -269,7 +282,7 @@ def _render_active_diagnostics(
 
 
 def render_strategy_overview(
-    bundle,
+    bundle: DashboardArtifactBundle,
     portfolios: Sequence[str],
 ) -> None:
     """Render the latest strategy and monitoring overview."""
@@ -296,23 +309,17 @@ def render_strategy_overview(
     )
 
     st.subheader("Monitoring status")
-    figure_columns = st.columns(2)
-
-    figure_columns[0].plotly_chart(
-        build_monitoring_status_heatmap(
-            status_summary,
-            height=390,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    figure_columns[1].plotly_chart(
-        build_diagnostic_count_figure(
-            status_summary,
-            height=390,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
+    _render_figure_grid(
+        [
+            build_monitoring_status_heatmap(
+                status_summary,
+                height=390,
+            ),
+            build_diagnostic_count_figure(
+                status_summary,
+                height=390,
+            ),
+        ]
     )
 
     st.subheader("Latest portfolio snapshot")
@@ -323,7 +330,7 @@ def render_strategy_overview(
 
 
 def _render_performance_summary(
-    performance_summary,
+    performance_summary: pd.DataFrame,
 ) -> None:
     percentage_columns = (
         "total_return",
@@ -417,10 +424,10 @@ def _render_performance_summary(
 
 
 def render_performance_page(
-    bundle,
+    bundle: DashboardArtifactBundle,
     portfolios: Sequence[str],
-    start_date,
-    end_date,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
 ) -> None:
     """Render filtered performance and risk analytics."""
     st.header("Performance & Drawdowns")
@@ -452,49 +459,37 @@ def render_performance_page(
     _render_performance_summary(performance_summary)
 
     st.subheader("Growth and drawdown")
-    growth_columns = st.columns(2)
-
-    growth_columns[0].plotly_chart(
-        build_cumulative_performance_figure(
-            performance_history,
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    growth_columns[1].plotly_chart(
-        build_drawdown_figure(
-            performance_history,
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
+    _render_figure_grid(
+        [
+            build_cumulative_performance_figure(
+                performance_history,
+                height=430,
+            ),
+            build_drawdown_figure(
+                performance_history,
+                height=430,
+            ),
+        ]
     )
 
     st.subheader("Rolling performance and risk")
-    rolling_columns = st.columns(2)
-
-    rolling_columns[0].plotly_chart(
-        build_rolling_metric_figure(
-            performance_history,
-            "rolling_sharpe_252",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    rolling_columns[1].plotly_chart(
-        build_rolling_metric_figure(
-            performance_history,
-            "annualised_volatility_126",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
+    _render_figure_grid(
+        [
+            build_rolling_metric_figure(
+                performance_history,
+                "rolling_sharpe_252",
+                height=430,
+            ),
+            build_rolling_metric_figure(
+                performance_history,
+                "annualised_volatility_126",
+                height=430,
+            ),
+        ]
     )
 
 
-def _render_factor_snapshot(snapshot) -> None:
+def _render_factor_snapshot(snapshot: pd.DataFrame) -> None:
     display = snapshot.assign(
         signal_coverage=lambda data: data["signal_coverage"] * 100.0,
     )
@@ -546,7 +541,11 @@ def _render_factor_snapshot(snapshot) -> None:
     )
 
 
-def render_signal_health_page(bundle, start_date, end_date) -> None:
+def render_signal_health_page(
+    bundle: DashboardArtifactBundle,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
+) -> None:
     """Render latest and historical retained-factor diagnostics."""
     st.header("Factor & Signal Health")
     st.caption(
@@ -593,45 +592,35 @@ def render_signal_health_page(bundle, start_date, end_date) -> None:
     _render_factor_snapshot(snapshot)
 
     st.subheader("Historical signal diagnostics")
-    signal_columns = st.columns(2)
-    signal_columns[0].plotly_chart(
-        build_signal_health_figure(
-            signal_history,
-            "signal_coverage",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    signal_columns[1].plotly_chart(
-        build_signal_health_figure(
-            signal_history,
-            "rolling_mean_ic_252",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    signal_columns[0].plotly_chart(
-        build_signal_health_figure(
-            signal_history,
-            "rank_stability_21d",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    signal_columns[1].plotly_chart(
-        build_factor_dependence_figure(
-            dependence_history,
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
+    _render_figure_grid(
+        [
+            build_signal_health_figure(
+                signal_history,
+                "signal_coverage",
+                height=430,
+            ),
+            build_signal_health_figure(
+                signal_history,
+                "rolling_mean_ic_252",
+                height=430,
+            ),
+            build_signal_health_figure(
+                signal_history,
+                "rank_stability_21d",
+                height=430,
+            ),
+            build_factor_dependence_figure(
+                dependence_history,
+                height=430,
+            ),
+        ]
     )
 
 
-def _build_latest_risk_snapshot(beta_history, concentration_history):
+def _build_latest_risk_snapshot(
+    beta_history: pd.DataFrame,
+    concentration_history: pd.DataFrame,
+) -> pd.DataFrame:
     latest_beta = (
         beta_history.sort_values(["portfolio", "date"], kind="stable")
         .groupby("portfolio", sort=False, as_index=False)
@@ -664,7 +653,7 @@ def _build_latest_risk_snapshot(beta_history, concentration_history):
     )
 
 
-def _render_risk_snapshot(snapshot) -> None:
+def _render_risk_snapshot(snapshot: pd.DataFrame) -> None:
     percentage_columns = (
         "beta_coverage",
         "largest_absolute_sector_net_exposure",
@@ -737,10 +726,10 @@ def _render_risk_snapshot(snapshot) -> None:
 
 
 def render_risk_concentration_page(
-    bundle,
+    bundle: DashboardArtifactBundle,
     portfolios: Sequence[str],
-    start_date,
-    end_date,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
 ) -> None:
     """Render filtered beta and concentration monitoring analytics."""
     st.header("Risk & Concentration")
@@ -785,24 +774,19 @@ def render_risk_concentration_page(
     _render_risk_snapshot(snapshot)
 
     st.subheader("Market beta")
-    beta_columns = st.columns(2)
-    beta_columns[0].plotly_chart(
-        build_beta_figure(
-            beta_history,
-            "holdings_market_beta",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    beta_columns[1].plotly_chart(
-        build_beta_figure(
-            beta_history,
-            "realised_gross_beta_126",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
+    _render_figure_grid(
+        [
+            build_beta_figure(
+                beta_history,
+                "holdings_market_beta",
+                height=430,
+            ),
+            build_beta_figure(
+                beta_history,
+                "realised_gross_beta_126",
+                height=430,
+            ),
+        ]
     )
     st.plotly_chart(
         build_beta_figure(
@@ -815,49 +799,36 @@ def render_risk_concentration_page(
     )
 
     st.subheader("Concentration")
-    concentration_columns = st.columns(2)
-    concentration_columns[0].plotly_chart(
-        build_concentration_figure(
-            concentration_history,
-            "effective_position_count",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    concentration_columns[1].plotly_chart(
-        build_concentration_figure(
-            concentration_history,
-            "largest_absolute_sector_net_exposure",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    concentration_columns[0].plotly_chart(
-        build_concentration_figure(
-            concentration_history,
-            "top_five_contributor_share_63",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    concentration_columns[1].plotly_chart(
-        build_concentration_figure(
-            concentration_history,
-            "effective_contribution_sector_count_63",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
+    _render_figure_grid(
+        [
+            build_concentration_figure(
+                concentration_history,
+                "effective_position_count",
+                height=430,
+            ),
+            build_concentration_figure(
+                concentration_history,
+                "largest_absolute_sector_net_exposure",
+                height=430,
+            ),
+            build_concentration_figure(
+                concentration_history,
+                "top_five_contributor_share_63",
+                height=430,
+            ),
+            build_concentration_figure(
+                concentration_history,
+                "effective_contribution_sector_count_63",
+                height=430,
+            ),
+        ]
     )
 
 
 def _build_latest_implementation_snapshot(
-    implementation_history,
-    liquidity_history,
-):
+    implementation_history: pd.DataFrame,
+    liquidity_history: pd.DataFrame,
+) -> pd.DataFrame:
     latest_implementation = (
         implementation_history.sort_values(
             ["portfolio", "date"],
@@ -911,7 +882,7 @@ def _build_latest_implementation_snapshot(
     )
 
 
-def _render_implementation_snapshot(snapshot) -> None:
+def _render_implementation_snapshot(snapshot: pd.DataFrame) -> None:
     display = snapshot.assign(
         largest_trade_weight_63=lambda data: data["largest_trade_weight_63"] * 100.0,
         maximum_missing_return_weight_63=lambda data: (
@@ -984,10 +955,10 @@ def _render_implementation_snapshot(snapshot) -> None:
 
 
 def render_implementation_liquidity_page(
-    bundle,
+    bundle: DashboardArtifactBundle,
     portfolios: Sequence[str],
-    start_date,
-    end_date,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
 ) -> None:
     """Render filtered trading-implementation and liquidity diagnostics."""
     st.header("Implementation & Liquidity")
@@ -1033,42 +1004,29 @@ def render_implementation_liquidity_page(
     _render_implementation_snapshot(snapshot)
 
     st.subheader("Implementation diagnostics")
-    implementation_columns = st.columns(2)
-    implementation_columns[0].plotly_chart(
-        build_implementation_figure(
-            implementation_history,
-            "annualised_turnover_63",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    implementation_columns[1].plotly_chart(
-        build_implementation_figure(
-            implementation_history,
-            "largest_trade_weight_63",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    implementation_columns[0].plotly_chart(
-        build_implementation_figure(
-            implementation_history,
-            "minimum_trade_capacity_1pct_usd_millions_63",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    implementation_columns[1].plotly_chart(
-        build_implementation_figure(
-            implementation_history,
-            "maximum_missing_return_weight_63",
-            height=430,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
+    _render_figure_grid(
+        [
+            build_implementation_figure(
+                implementation_history,
+                "annualised_turnover_63",
+                height=430,
+            ),
+            build_implementation_figure(
+                implementation_history,
+                "largest_trade_weight_63",
+                height=430,
+            ),
+            build_implementation_figure(
+                implementation_history,
+                "minimum_trade_capacity_1pct_usd_millions_63",
+                height=430,
+            ),
+            build_implementation_figure(
+                implementation_history,
+                "maximum_missing_return_weight_63",
+                height=430,
+            ),
+        ]
     )
 
     st.subheader("Liquidity coverage")
@@ -1082,7 +1040,7 @@ def render_implementation_liquidity_page(
     )
 
 
-def _render_side_cost_summary(summary) -> None:
+def _render_side_cost_summary(summary: pd.DataFrame) -> None:
     percentage_columns = (
         "annualised_long_contribution",
         "annualised_short_contribution",
@@ -1167,7 +1125,7 @@ def _render_side_cost_summary(summary) -> None:
     )
 
 
-def _render_security_contribution_table(security_summary) -> None:
+def _render_security_contribution_table(security_summary: pd.DataFrame) -> None:
     percentage_columns = (
         "cumulative_gross_contribution",
         "cumulative_transaction_cost",
@@ -1225,10 +1183,10 @@ def _render_security_contribution_table(security_summary) -> None:
 
 
 def render_attribution_page(
-    bundle,
+    bundle: DashboardArtifactBundle,
     portfolios: Sequence[str],
-    start_date,
-    end_date,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
 ) -> None:
     """Render filtered portfolio-side, cost, and security attribution."""
     st.header("Attribution")
@@ -1324,22 +1282,17 @@ def render_attribution_page(
 
     _render_security_contribution_table(security_summary)
 
-    security_columns = st.columns(2)
-    security_columns[0].plotly_chart(
-        build_security_contribution_figure(
-            security_summary,
-            top_n=10,
-            height=520,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
-    )
-    security_columns[1].plotly_chart(
-        build_security_contribution_share_figure(
-            security_summary,
-            top_n=15,
-            height=520,
-        ),
-        width="stretch",
-        config=PLOTLY_CONFIG,
+    _render_figure_grid(
+        [
+            build_security_contribution_figure(
+                security_summary,
+                top_n=10,
+                height=520,
+            ),
+            build_security_contribution_share_figure(
+                security_summary,
+                top_n=15,
+                height=520,
+            ),
+        ]
     )
