@@ -1,5 +1,10 @@
 """Rebuild validated monitoring artifacts for the frozen strategies."""
 
+from __future__ import annotations
+
+import argparse
+import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import pandas as pd
@@ -38,11 +43,14 @@ def rebuild_monitoring_artifacts(
     )
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.parse_args(() if argv is None else argv)
+
     manifest = rebuild_monitoring_artifacts()
     print(manifest.to_string(index=False))
     print(f"\nMonitoring artifacts written to: {MONITORING_DATA_DIR}")
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

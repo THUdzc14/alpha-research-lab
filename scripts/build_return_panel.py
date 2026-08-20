@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
+import sys
+from collections.abc import Sequence
+
 import pandas as pd
 
 from alpha_research.config.paths import PROCESSED_DATA_DIR, RAW_DATA_DIR
@@ -24,7 +28,10 @@ def build_return_panel(prices: pd.DataFrame) -> pd.DataFrame:
     return return_panel
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.parse_args(() if argv is None else argv)
+
     prices = load_parquet(RAW_DATA_DIR / "sp100_prices.parquet")
     return_panel = build_return_panel(prices)
     save_parquet(return_panel, PROCESSED_DATA_DIR / "sp100_returns.parquet")
@@ -32,4 +39,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

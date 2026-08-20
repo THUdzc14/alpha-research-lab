@@ -61,3 +61,24 @@ def test_main_writes_the_frozen_return_panel_path(tmp_path, monkeypatch, capsys)
     assert output_path.exists()
     pd.testing.assert_frame_equal(actual, expected)
     assert capsys.readouterr().out == "Saved return panel with 4 rows.\n"
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_exit_code"),
+    [(["--help"], 0), (["--not-an-option"], 2)],
+    ids=["help", "invalid-argument"],
+)
+def test_cli_inspection_exits_before_loading_data(
+    argv,
+    expected_exit_code,
+    monkeypatch,
+):
+    def unexpected_load(*args, **kwargs):
+        raise AssertionError("CLI inspection attempted to load pipeline data.")
+
+    monkeypatch.setattr(return_panel_script, "load_parquet", unexpected_load)
+
+    with pytest.raises(SystemExit) as error:
+        return_panel_script.main(argv)
+
+    assert error.value.code == expected_exit_code

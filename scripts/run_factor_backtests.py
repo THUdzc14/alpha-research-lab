@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import argparse
+import sys
+from collections.abc import Mapping, Sequence
 
 import pandas as pd
 
@@ -79,7 +81,10 @@ def build_factor_backtests(
     return daily_results, holdings_results, summary_table
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.parse_args(() if argv is None else argv)
+
     input_path = PROCESSED_DATA_DIR / "factor_panel.parquet"
     panel = load_parquet(input_path)
     daily_results, holdings_results, summary_table = build_factor_backtests(panel)
@@ -111,4 +116,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

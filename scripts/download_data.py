@@ -70,7 +70,11 @@ def _normalise_yfinance_output(data: pd.DataFrame, tickers: list[str]) -> pd.Dat
 
 
 def download_prices(tickers: list[str], start: str, end: str | None = None) -> pd.DataFrame:
-    """Download one adjusted and unadjusted OHLCV panel through yfinance."""
+    """Download one adjusted and unadjusted OHLCV panel through yfinance.
+
+    ``end`` is exclusive. Supplying it fixes the requested date boundary, but
+    does not freeze later vendor revisions or the separately loaded universe.
+    """
     raw = yf.download(
         tickers=tickers,
         start=start,
@@ -87,7 +91,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--universe", default="sp100", choices=["sp100"])
     parser.add_argument("--start", default="2015-01-01")
-    parser.add_argument("--end", default=None)
+    # Exact historical recreation also requires the same constituent snapshot
+    # and unchanged source history; an explicit end date alone is insufficient.
+    parser.add_argument("--end", default=None, help="Exclusive download end date.")
     args = parser.parse_args()
 
     RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)

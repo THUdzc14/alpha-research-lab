@@ -2,6 +2,7 @@ from inspect import signature
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from alpha_research.backtest import BacktestConfig
 from alpha_research.config.research import BACKTEST_RETURN_COLUMN
@@ -101,3 +102,24 @@ def test_main_writes_the_established_backtest_artifacts(tmp_path, monkeypatch, c
     assert "12-1 Momentum" in output
     assert "Realised Volatility" in output
     assert "Combined summary" in output
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_exit_code"),
+    [(["--help"], 0), (["--not-an-option"], 2)],
+    ids=["help", "invalid-argument"],
+)
+def test_cli_inspection_exits_before_loading_data(
+    argv,
+    expected_exit_code,
+    monkeypatch,
+):
+    def unexpected_load(*args, **kwargs):
+        raise AssertionError("CLI inspection attempted to load pipeline data.")
+
+    monkeypatch.setattr(backtest_script, "load_parquet", unexpected_load)
+
+    with pytest.raises(SystemExit) as error:
+        backtest_script.main(argv)
+
+    assert error.value.code == expected_exit_code

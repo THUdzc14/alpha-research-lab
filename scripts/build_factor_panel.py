@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
+import sys
+from collections.abc import Sequence
+
 import pandas as pd
 
 from alpha_research.config.paths import PROCESSED_DATA_DIR, RAW_DATA_DIR
@@ -112,7 +116,10 @@ def build_factor_panel(panel: pd.DataFrame, benchmark: pd.DataFrame) -> pd.DataF
     return factor_panel
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.parse_args(() if argv is None else argv)
+
     input_path = PROCESSED_DATA_DIR / "equity_panel.parquet"
     output_path = PROCESSED_DATA_DIR / "factor_panel.parquet"
     panel = load_parquet(input_path)
@@ -133,4 +140,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

@@ -149,3 +149,30 @@ def test_build_factor_panel_preserves_the_published_feature_schema():
     assert not any(column.startswith("market_model_") for column in result.columns)
     pd.testing.assert_frame_equal(equity_panel, original_panel)
     pd.testing.assert_frame_equal(benchmark, original_benchmark)
+
+
+@pytest.mark.parametrize(
+    "script",
+    [processed_panel_script, factor_panel_script],
+    ids=["processed-panel", "factor-panel"],
+)
+@pytest.mark.parametrize(
+    ("argv", "expected_exit_code"),
+    [(["--help"], 0), (["--not-an-option"], 2)],
+    ids=["help", "invalid-argument"],
+)
+def test_panel_script_cli_exits_before_loading_data(
+    script,
+    argv,
+    expected_exit_code,
+    monkeypatch,
+):
+    def unexpected_load(*args, **kwargs):
+        raise AssertionError("CLI inspection attempted to load pipeline data.")
+
+    monkeypatch.setattr(script, "load_parquet", unexpected_load)
+
+    with pytest.raises(SystemExit) as error:
+        script.main(argv)
+
+    assert error.value.code == expected_exit_code

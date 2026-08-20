@@ -52,6 +52,31 @@ def test_monitoring_writer_loads_the_named_inputs_and_returns_the_manifest(
         pd.testing.assert_frame_equal(inputs[name], original)
 
 
+@pytest.mark.parametrize(
+    ("argv", "expected_exit_code"),
+    [(["--help"], 0), (["--not-an-option"], 2)],
+    ids=["help", "invalid-argument"],
+)
+def test_monitoring_cli_inspection_exits_before_rebuilding(
+    argv,
+    expected_exit_code,
+    monkeypatch,
+):
+    def unexpected_rebuild(*args, **kwargs):
+        raise AssertionError("CLI inspection attempted to rebuild monitoring artifacts.")
+
+    monkeypatch.setattr(
+        monitoring_script,
+        "rebuild_monitoring_artifacts",
+        unexpected_rebuild,
+    )
+
+    with pytest.raises(SystemExit) as error:
+        monitoring_script.main(argv)
+
+    assert error.value.code == expected_exit_code
+
+
 def _install_refresh_stubs(monkeypatch, *, mismatched_reference: bool = False):
     factor_panel = pd.DataFrame({"factor_input": [1.0]})
     benchmark_prices = pd.DataFrame({"benchmark_input": [2.0]})
