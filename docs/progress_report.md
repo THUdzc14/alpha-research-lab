@@ -18,7 +18,7 @@ data quality
 → final strategy selection
 ```
 
-The core research phase is complete. The project has selected a primary historical specification, retained transparent benchmarks, documented rejected methods and exported reusable evidence for the next engineering stage.
+The core research and engineering phases are complete. The project has selected a primary historical specification, retained transparent benchmarks, documented rejected methods and exposed the final evidence through reusable analytics and a Streamlit dashboard.
 
 ---
 
@@ -362,7 +362,7 @@ The engineering layer now provides:
 
 The complete refresh workflow is exposed through `scripts/refresh_strategy_outputs.py`.
 
-All 15 dashboard artifacts reconcile on columns, keys, values, and row counts against the stored research outputs.
+All 15 dashboard artifacts reconciled on columns, keys, values, and row counts against the locally generated research outputs.
 
 ---
 
@@ -391,7 +391,7 @@ Page-level notebook reconciliation cells were used to verify:
 - portfolio-side and security-level attribution;
 - status aggregation and diagnostic figures.
 
-Final quality assurance included:
+The completed implementation baseline was checked with:
 
 - the complete pytest suite;
 - Ruff linting;
@@ -400,7 +400,21 @@ Final quality assurance included:
 - full 15-dataset dry-run reconstruction;
 - Streamlit navigation, filter, empty-state, and invalid-range checks.
 
-All automated checks and artifact reconciliations passed.
+All automated checks and artifact reconciliations passed. A final release-quality rerun follows the repository-wide consistency revision.
+
+---
+
+## Milestone 13 — Documentation and public readiness
+
+The completed repository was reviewed in place for consistency, readability and
+public presentation. The review aligned module and script interfaces, clarified
+the notebook narrative, added safe command-line help, and updated the operating
+documentation without changing the research methodology or reported results.
+
+The public repository is code-only with respect to downloaded and generated
+data. It provides scripts to reconstruct those artifacts, documents the
+third-party data boundary, and releases the repository code under the MIT
+licence.
 
 ---
 
@@ -463,23 +477,22 @@ The repository now contains:
 - the original research notebooks and empirical record;
 - a tested reusable Python package;
 - deterministic artifact refresh and validation;
-- 15 validated dashboard datasets;
+- contracts and scripts for reconstructing 15 validated dashboard datasets;
 - a complete six-page Streamlit dashboard;
-- final automated and manual quality-assurance coverage.
+- automated and manual quality-assurance coverage; and
+- public-facing methodology, provenance and operating documentation.
 
-The project is now in its documentation, consistency-review, and portfolio-presentation stage.
+The documentation and repository-wide consistency review are complete. The project is ready for final release-quality validation and portfolio presentation.
 
 ---
 
-## Remaining project work
+## Release status and optional extensions
 
-The research implementation, dashboard, quality assurance, and supporting documentation are now complete.
+The research implementation, dashboard and supporting documentation are complete.
 
-The remaining planned work is:
+Before publication, the remaining repository task is to rerun the complete
+non-destructive quality-assurance and artifact-reconciliation sequence.
 
-1. conduct an in-place repository review for consistency and readability;
-2. rerun the complete quality-assurance sequence after any cleanup;
-3. prepare the final public-repository presentation;
-4. update the CV project description and interview narrative.
-
-Possible later extensions include forward or walk-forward evaluation, alternative datasets, scheduled refreshes, and deployment. These are optional extensions rather than requirements for the completed project.
+Possible later extensions include forward or walk-forward evaluation,
+alternative datasets, scheduled refreshes and deployment. These are optional
+extensions rather than requirements for the completed project.

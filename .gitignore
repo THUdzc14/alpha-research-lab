@@ -4,6 +4,13 @@ __pycache__/
 .venv/
 venv/
 .env
+.pytest_cache/
+.ruff_cache/
+
+# Packaging
+build/
+dist/
+*.egg-info/
 
 # Jupyter
 .ipynb_checkpoints/
@@ -11,6 +18,7 @@ venv/
 # Data
 data/raw/*
 data/processed/*
+data/sample/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 

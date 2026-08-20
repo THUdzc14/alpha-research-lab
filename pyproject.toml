@@ -1,12 +1,18 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "alpha-research-lab"
 version = "0.1.0"
 description = "Systematic alpha research framework for factor construction, signal validation, backtesting, and risk monitoring."
+readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+
+[project.urls]
+Repository = "https://github.com/THUdzc14/alpha-research-lab"
 
 [tool.setuptools.packages.find]
 where = ["src"]

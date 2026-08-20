@@ -10,9 +10,9 @@ The dashboard workflow is:
 
 1. Load the processed research inputs.
 2. Reconstruct the attribution and monitoring outputs.
-3. validate each output against its artifact contract.
-4. Compare reconstructed outputs with the stored artifacts.
-5. Optionally write and read back the refreshed artifacts.
+3. Validate each output against its artifact contract.
+4. Write and read back the artifacts on first use or after an intentional refresh.
+5. Compare later reconstructions with the stored local artifacts.
 6. Load the validated artifacts into the dashboard data layer.
 7. Derive dashboard tables and figures through reusable analytics modules.
 8. Render the six Streamlit pages.
@@ -62,44 +62,62 @@ Stored under `data/processed/monitoring/`:
 
 ## Rebuilding and validating the artifacts
 
-Run commands from the repository root.
+Complete the [README installation steps](../README.md#installation), then run
+the following commands from the repository root.
 
-### Dry-run reconciliation
+The public repository is code-only with respect to downloaded and generated
+data. A clean clone therefore has no Parquet inputs or dashboard artifacts.
+
+### First-time bootstrap
+
+```powershell
+.venv\Scripts\python scripts\download_data.py --start 2015-01-01 --end 2026-07-03
+.venv\Scripts\python scripts\build_processed_panel.py
+.venv\Scripts\python scripts\build_return_panel.py
+.venv\Scripts\python scripts\build_factor_panel.py
+.venv\Scripts\python scripts\run_factor_backtests.py
+.venv\Scripts\python scripts\refresh_strategy_outputs.py --write
+```
+
+The explicit download end date is exclusive and requests data through 2 July
+2026. It fixes the date boundary, but not later Yahoo Finance revisions or the
+current S&P 100 constituent list retrieved at runtime.
+
+Write mode:
+
+1. reconstructs all 15 dashboard datasets;
+2. validates their schemas, keys and cross-dataset identities;
+3. writes the six attribution and nine monitoring artifacts;
+4. reads the persisted files back; and
+5. validates the read-back results.
+
+### Subsequent dry-run reconciliation
+
+After the artifacts exist, run:
 
 ```powershell
 .venv\Scripts\python scripts\refresh_strategy_outputs.py
 ```
 
-The dry run:
-
-- reconstructs all 15 datasets;
-- validates their schemas and keys;
-- compares their columns, keys, and values with the stored artifacts;
-- reports row counts and reconciliation results;
-- does not write any artifacts.
-
-A successful run ends with:
+The dry run reconstructs all 15 datasets in memory, validates them, compares
+their columns, keys and values with the saved local artifacts, and writes
+nothing. A successful run ends with:
 
 ```text
 All refresh reconciliations pass: True
 Dry run only: no artifacts were written.
 ```
 
-### Write refreshed artifacts
+### Intentional refresh
+
+If source data or research configuration intentionally change, rerun the
+preparation steps and then replace the local dashboard artifacts explicitly:
 
 ```powershell
 .venv\Scripts\python scripts\refresh_strategy_outputs.py --write
 ```
 
-Write mode:
-
-1. performs the same reconstruction and validation;
-2. writes the refreshed Parquet files;
-3. reads the files back from disk;
-4. validates the read-back results;
-5. confirms that the persisted data match the reconstructed outputs.
-
-Use write mode only when the source data or research configuration have intentionally changed.
+Do not edit generated Parquet files manually.
 
 ## Dashboard readiness and freshness
 
@@ -135,7 +153,8 @@ Where appropriate, undated summary artifacts use a related dated artifact as the
 Install the project and development dependencies if necessary:
 
 ```powershell
-.venv\Scripts\python -m pip install -e ".[dev]"
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m pip install -e .
 ```
 
 Start Streamlit from the repository root:
@@ -218,6 +237,9 @@ git diff --check
 .venv\Scripts\python scripts\refresh_strategy_outputs.py
 ```
 
+This non-writing check requires an existing local artifact set. Use the
+first-time bootstrap sequence on a clean clone.
+
 Before a release or portfolio milestone, also inspect every Streamlit page manually and confirm that:
 
 - page navigation works;
@@ -241,7 +263,17 @@ The production-style dashboard path is separated from notebook state:
 - figure construction is implemented in `visualisation.py`;
 - Streamlit rendering is isolated under `dashboard/`.
 
-The current artifacts represent a frozen research snapshot rather than a live production feed. A stale-data warning is therefore expected when the dashboard is run sufficiently long after the final observation date.
+Market data are retrieved from Yahoo Finance through the independent
+open-source [`yfinance`](https://github.com/ranaroussi/yfinance) library. The
+repository does not distribute the downloaded data, and the MIT licence for the
+repository does not grant rights to third-party market data. Users must follow
+the applicable data-provider terms.
+
+The documented results and screenshots represent a frozen research snapshot
+rather than a live production feed. Rebuilding with a later vendor response or
+constituent list can produce different data. A stale-data warning is expected
+when locally reconstructed snapshot artifacts are viewed sufficiently long
+after their final observation date.
 
 ## Dashboard examples
 

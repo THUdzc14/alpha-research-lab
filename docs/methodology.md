@@ -89,6 +89,21 @@ Dates without any valid next-day return are excluded from portfolio evaluation.
 
 Missing-return weight is tracked explicitly at both portfolio and security level. A missing return is not silently replaced with a valid observed return.
 
+### 3.5 Data source and snapshot reproducibility
+
+Market prices are retrieved from Yahoo Finance through the independent
+open-source [`yfinance`](https://github.com/ranaroussi/yfinance) library. The
+current S&P 100 constituent table is retrieved separately from Wikipedia.
+
+The public repository does not distribute these downloaded inputs or generated
+Parquet artifacts. An explicit download end date fixes the requested date
+boundary but does not pin later vendor revisions or membership changes. Exact
+recreation of a historical raw snapshot therefore requires preserving both the
+constituent list and downloaded source files.
+
+The repository's MIT licence applies to its code and documentation, not to
+third-party market data or dependencies.
+
 ---
 
 ## 4. Factor definitions
@@ -748,7 +763,7 @@ It reconstructs 15 datasets:
 * six attribution datasets;
 * nine monitoring datasets.
 
-The workflow can be run in dry-run mode to compare reconstructed data with the stored reference artifacts without modifying any files. Write mode persists the reconstructed artifacts and then reads them back for an additional validation pass.
+On a clean clone, write mode creates and reads back the validated local artifacts. Once those files exist, dry-run mode compares an in-memory reconstruction with the local reference artifacts without modifying them.
 
 The reconciliation checks cover:
 
@@ -759,7 +774,7 @@ The reconciliation checks cover:
 * numerical values;
 * cross-dataset consistency.
 
-The final dry-run reconciliation passed for all 15 datasets. Floating-point comparisons use tight numerical tolerances so that material differences cannot be hidden by the audit.
+The final validation dry run reconciled all 15 locally generated datasets. Floating-point comparisons use tight numerical tolerances so that material differences cannot be hidden by the audit.
 
 ### 17.3 Artifact contracts
 
@@ -861,5 +876,6 @@ The dashboard therefore reports the same research results as the validated artif
 11. Noisy backward-looking beta and covariance estimates.
 12. SPY is not exposure-matched to the candidate portfolios.
 13. No live, paper-trading or genuinely unseen forward validation.
+14. Third-party market data and current constituent membership can be revised after the documented snapshot.
 
 These limitations prevent the results from being interpreted as production-ready or investable evidence.

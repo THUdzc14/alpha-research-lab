@@ -4,8 +4,8 @@ An end-to-end research framework for constructing, testing, combining, attributi
 
 > **Project status:** the historical research workflow, reproducible artifact
 > refresh, reusable analytics layer and six-page Streamlit dashboard are
-> complete. The remaining work focuses on documentation, presentation and a
-> final repository-wide consistency review.
+> complete. The repository-wide consistency review is complete; only final
+> release validation and presentation remain.
 
 The project follows a deliberately layered workflow:
 
@@ -257,9 +257,9 @@ unreadable or contract-invalid artifacts stop execution with explanatory
 metadata. Stale but structurally valid artifacts remain available and are
 identified with a warning.
 
-The current saved artifacts represent the frozen July 2026 research snapshot.
-Their stale status therefore reflects elapsed calendar time rather than an
-artifact failure.
+The documented results and screenshots represent the frozen July 2026 research
+snapshot. When those artifacts are reconstructed locally, their stale status
+reflects elapsed calendar time rather than an artifact failure.
 
 ---
 
@@ -301,15 +301,16 @@ Detailed operating and reproduction instructions are available in the [dashboard
 
 ```text
 alpha-research-lab/
+├── .github/workflows/tests.yml
 ├── dashboard/
 │   ├── dashboard_pages.py
 │   └── streamlit_app.py
 ├── data/
-│   ├── raw/
-│   ├── processed/
-│   │   └── monitoring/
-│   └── sample/
+│   ├── raw/                  # generated locally; ignored by Git
+│   └── processed/            # generated locally; ignored by Git
 ├── docs/
+│   ├── images/
+│   ├── dashboard_guide.md
 │   ├── methodology.md
 │   └── progress_report.md
 ├── notebooks/
@@ -326,8 +327,10 @@ alpha-research-lab/
 ├── scripts/
 │   ├── download_data.py
 │   ├── build_processed_panel.py
+│   ├── build_return_panel.py
 │   ├── build_factor_panel.py
 │   ├── run_factor_backtests.py
+│   ├── build_strategy_monitoring.py
 │   └── refresh_strategy_outputs.py
 ├── src/
 │   └── alpha_research/
@@ -354,6 +357,7 @@ alpha-research-lab/
 │       ├── visualisation.py
 │       └── workflows.py
 ├── tests/
+├── LICENSE
 ├── pyproject.toml
 └── requirements.txt
 ```
@@ -396,35 +400,44 @@ python -m compileall -q src dashboard scripts tests
 
 ## Reproducing the research artifacts
 
-The source-data preparation sequence is:
+The public repository does not distribute downloaded market data or generated
+Parquet artifacts. Build them locally from the repository root.
+
+To request the documented date window, whose final included date is 2 July
+2026, run:
 
 ```powershell
-python scripts/download_data.py
+python scripts/download_data.py --start 2015-01-01 --end 2026-07-03
 python scripts/build_processed_panel.py
+python scripts/build_return_panel.py
 python scripts/build_factor_panel.py
 python scripts/run_factor_backtests.py
 ```
 
-The complete frozen attribution and monitoring outputs can then be reconstructed
-without executing the notebooks.
+The `yfinance` end date is exclusive. Fixing it makes the requested date window
+explicit, but does not preserve the historical vendor response or the S&P 100
+membership retrieved at runtime. Exact recreation of the original raw snapshot
+would also require the same saved constituent list and unchanged source data.
 
-Run a non-writing reconciliation against the saved artifacts:
-
-```powershell
-python scripts/refresh_strategy_outputs.py
-```
-
-The command rebuilds all 15 dashboard datasets in memory, validates their
-contracts and compares keys, columns and values with the saved Parquet files.
-
-To replace the saved artifacts with a newly validated reconstruction:
+On a clean clone, create the six attribution and nine monitoring artifacts with
+the explicit writing mode:
 
 ```powershell
 python scripts/refresh_strategy_outputs.py --write
 ```
 
-The writing mode validates every dataset, writes the artifacts and reads them
-back before reporting success.
+The command reconstructs all 15 dashboard datasets without executing the
+notebooks, validates their contracts, writes them and validates the persisted
+files again.
+
+After artifacts exist, use dry-run mode for non-writing reconciliation:
+
+```powershell
+python scripts/refresh_strategy_outputs.py
+```
+
+Dry-run mode rebuilds the datasets in memory and compares their columns, keys
+and values with the saved local Parquet files.
 
 The refresh workflow produces:
 
@@ -444,7 +457,7 @@ Launch the Streamlit application from the repository root:
 
 ```powershell
 streamlit run dashboard/streamlit_app.py
-````
+```
 
 The application loads artifacts in non-strict mode so that missing or invalid
 files can be explained in the interface. Page analytics themselves operate only
@@ -493,19 +506,15 @@ See [`docs/methodology.md`](docs/methodology.md) for detailed assumptions.
 
 ---
 
-## Remaining project work
+## Project status and possible extensions
 
-The core implementation is complete. The remaining work is:
+The research implementation, dashboard, documentation and controlled
+repository-wide consistency review are complete. The remaining release step is
+to rerun the full non-destructive quality-assurance sequence before publication.
 
-1. complete dashboard and reproducibility documentation;
-2. add selected dashboard screenshots or a short demonstration;
-3. conduct a repository-wide consistency and readability review;
-4. rerun the complete functional and reproducibility QA gates;
-5. prepare the public GitHub and job-portfolio presentation; and
-6. optionally design a forward or paper-trading extension without changing the
-   frozen historical specification.
-
-Cloud deployment is optional and is not required for the core project.
+Possible later extensions include genuinely unseen forward evaluation,
+paper-trading infrastructure, scheduled refreshes and deployment. They are not
+requirements of the completed historical research project.
 
 ---
 
@@ -514,6 +523,21 @@ Cloud deployment is optional and is not required for the core project.
 - [`docs/methodology.md`](docs/methodology.md)
 - [`docs/progress_report.md`](docs/progress_report.md)
 - [`docs/dashboard_guide.md`](docs/dashboard_guide.md)
+
+---
+
+## Data provenance and licence
+
+Market data are retrieved from [Yahoo Finance](https://finance.yahoo.com/)
+through the independent open-source
+[`yfinance`](https://github.com/ranaroussi/yfinance) library. The research
+universe is based on the current S&P 100 constituent table retrieved from
+[Wikipedia](https://en.wikipedia.org/wiki/S%26P_100). Users are responsible for
+complying with the terms that apply to any downloaded third-party data.
+
+Repository code and documentation are released under the [MIT License](LICENSE).
+That licence does not grant rights to Yahoo Finance data, third-party trademarks
+or third-party dependencies, each of which remains subject to its own terms.
 
 ---
 
