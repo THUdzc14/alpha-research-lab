@@ -400,7 +400,9 @@ The completed implementation baseline was checked with:
 - full 15-dataset dry-run reconstruction;
 - Streamlit navigation, filter, empty-state, and invalid-range checks.
 
-All automated checks and artifact reconciliations passed. A final release-quality rerun follows the repository-wide consistency revision.
+All baseline checks passed. Following the repository-wide consistency revision,
+the complete test suite, static checks, six-page Streamlit smoke validation and
+15-dataset dry-run reconciliation were rerun and passed.
 
 ---
 
@@ -482,16 +484,17 @@ The repository now contains:
 - automated and manual quality-assurance coverage; and
 - public-facing methodology, provenance and operating documentation.
 
-The documentation and repository-wide consistency review are complete. The project is ready for final release-quality validation and portfolio presentation.
+The documentation, repository-wide consistency review and final release-quality
+validation are complete. The project is ready for public release and portfolio
+presentation.
 
 ---
 
 ## Release status and optional extensions
 
-The research implementation, dashboard and supporting documentation are complete.
-
-Before publication, the remaining repository task is to rerun the complete
-non-destructive quality-assurance and artifact-reconciliation sequence.
+The research implementation, dashboard, supporting documentation and
+post-revision quality assurance are complete. No further repository work is
+required for the defined historical research scope.
 
 Possible later extensions include forward or walk-forward evaluation,
 alternative datasets, scheduled refreshes and deployment. These are optional

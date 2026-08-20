@@ -4,8 +4,8 @@ An end-to-end research framework for constructing, testing, combining, attributi
 
 > **Project status:** the historical research workflow, reproducible artifact
 > refresh, reusable analytics layer and six-page Streamlit dashboard are
-> complete. The repository-wide consistency review is complete; only final
-> release validation and presentation remain.
+> complete. The repository-wide consistency review and final release validation
+> have passed, and the project is ready for public portfolio presentation.
 
 The project follows a deliberately layered workflow:
 
@@ -509,8 +509,9 @@ See [`docs/methodology.md`](docs/methodology.md) for detailed assumptions.
 ## Project status and possible extensions
 
 The research implementation, dashboard, documentation and controlled
-repository-wide consistency review are complete. The remaining release step is
-to rerun the full non-destructive quality-assurance sequence before publication.
+repository-wide consistency review are complete. The full test suite, static
+checks, six-page dashboard smoke validation and 15-artifact reconciliation also
+passed after the revision. The repository is ready for public release.
 
 Possible later extensions include genuinely unseen forward evaluation,
 paper-trading infrastructure, scheduled refreshes and deployment. They are not
