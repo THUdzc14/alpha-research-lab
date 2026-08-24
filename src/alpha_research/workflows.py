@@ -157,6 +157,170 @@ def _extract_active_gross_returns(
     )
 
 
+def build_common_strategy_backtests(
+    factor_panel: pd.DataFrame,
+    config: BacktestConfig,
+) -> tuple[
+    dict[str, pd.DataFrame],
+    dict[str, pd.DataFrame],
+    dict[str, pd.DataFrame],
+]:
+    """Build retained factors and candidate strategies on one common schedule.
+
+    The two standalone factors and three multi-factor candidates are constructed
+    with the same rebalance frequency, offset, exposure budgets, and transaction
+    cost. Component-factor backtests are reused when estimating the lagged pure
+    inverse-volatility sleeve allocations.
+
+    Returns
+    -------
+    daily_results
+        Drift-aware portfolio-level backtest results in stable comparison order.
+    holdings_results
+        Security-level holdings, pre-trade weights, and trades from the same runs.
+    target_weights
+        Dated target weights supplied to the backtest engine.
+    """
+    if not isinstance(config, BacktestConfig):
+        raise TypeError("config must be a BacktestConfig instance.")
+
+    if config.beta_neutral:
+        raise ValueError("Common strategy backtests do not support beta-neutral hedges.")
+
+    required_columns = {
+        "date",
+        "ticker",
+        BACKTEST_RETURN_COLUMN,
+        *FACTOR_COLUMNS.values(),
+    }
+    missing_columns = required_columns - set(factor_panel.columns)
+
+    if missing_columns:
+        raise KeyError("factor_panel is missing columns: " f"{sorted(missing_columns)}")
+
+    if factor_panel[["date", "ticker"]].duplicated().any():
+        raise ValueError("factor_panel contains duplicate date-ticker rows.")
+
+    panel = factor_panel.copy()
+    panel["date"] = pd.to_datetime(panel["date"], errors="raise")
+    panel["ticker"] = panel["ticker"].astype(str)
+
+    return_panel = panel[
+        [
+            "date",
+            "ticker",
+            BACKTEST_RETURN_COLUMN,
+        ]
+    ].copy()
+
+    sleeve_targets = {
+        sleeve_name: build_factor_target_weights(
+            panel,
+            factor_column=factor_column,
+            return_column=BACKTEST_RETURN_COLUMN,
+            config=config,
+        )
+        for sleeve_name, factor_column in FACTOR_COLUMNS.items()
+    }
+
+    target_dates = {
+        sleeve_name: pd.DatetimeIndex(targets["date"].unique()).sort_values()
+        for sleeve_name, targets in sleeve_targets.items()
+    }
+    reference_dates = target_dates[next(iter(FACTOR_COLUMNS))]
+
+    for sleeve_name, dates in target_dates.items():
+        if not dates.equals(reference_dates):
+            raise ValueError(
+                f"{sleeve_name} target dates do not match the common rebalance schedule."
+            )
+
+    sleeve_daily: dict[str, pd.DataFrame] = {}
+    sleeve_holdings: dict[str, pd.DataFrame] = {}
+
+    for sleeve_name, targets in sleeve_targets.items():
+        daily, holdings = run_target_weight_backtest(
+            return_panel,
+            targets,
+            return_column=BACKTEST_RETURN_COLUMN,
+            transaction_cost_bps=config.transaction_cost_bps,
+        )
+        sleeve_daily[sleeve_name] = daily
+        sleeve_holdings[sleeve_name] = holdings
+
+    sleeve_return_frame = pd.concat(
+        {
+            sleeve_name: _extract_active_gross_returns(daily)
+            for sleeve_name, daily in sleeve_daily.items()
+        },
+        axis=1,
+    ).sort_index()
+
+    inverse_volatility_allocations = (
+        calculate_rebalance_inverse_volatility_allocations(
+            sleeve_return_frame,
+            rebalance_dates=reference_dates,
+            lookback=INVERSE_VOLATILITY_LOOKBACK,
+            min_periods=INVERSE_VOLATILITY_MIN_PERIODS,
+        )
+    )
+
+    composite_panel = panel.copy()
+    composite_panel[COMPOSITE_SCORE_COLUMN] = combine_factor_scores(
+        composite_panel,
+        factor_weights=COMPOSITE_FACTOR_WEIGHTS,
+    )
+
+    target_weights = {
+        "Momentum Only": sleeve_targets["Momentum"],
+        "Realised Volatility Only": sleeve_targets["Realised Volatility"],
+        "Composite Score": build_factor_target_weights(
+            composite_panel,
+            factor_column=COMPOSITE_SCORE_COLUMN,
+            return_column=BACKTEST_RETURN_COLUMN,
+            config=config,
+        ),
+        "Fixed 50/50 Sleeves": combine_sleeve_target_weights(
+            sleeve_targets,
+            sleeve_allocations=FIXED_SLEEVE_ALLOCATIONS,
+        ),
+        "Pure Inverse Volatility": combine_dynamic_sleeve_target_weights(
+            sleeve_targets,
+            sleeve_allocations=inverse_volatility_allocations,
+        ),
+    }
+
+    daily_results = {
+        "Momentum Only": sleeve_daily["Momentum"],
+        "Realised Volatility Only": sleeve_daily["Realised Volatility"],
+    }
+    holdings_results = {
+        "Momentum Only": sleeve_holdings["Momentum"],
+        "Realised Volatility Only": sleeve_holdings["Realised Volatility"],
+    }
+
+    for portfolio in (
+        "Composite Score",
+        "Fixed 50/50 Sleeves",
+        "Pure Inverse Volatility",
+    ):
+        daily, holdings = run_target_weight_backtest(
+            return_panel,
+            target_weights[portfolio],
+            return_column=BACKTEST_RETURN_COLUMN,
+            transaction_cost_bps=config.transaction_cost_bps,
+        )
+        daily_results[portfolio] = daily
+        holdings_results[portfolio] = holdings
+
+    if not (
+        tuple(daily_results) == tuple(holdings_results) == tuple(target_weights)
+    ):
+        raise RuntimeError("Common strategy backtests returned an invalid portfolio set.")
+
+    return daily_results, holdings_results, target_weights
+
+
 def build_frozen_strategy_target_weights(
     factor_panel: pd.DataFrame,
 ) -> dict[str, pd.DataFrame]:
