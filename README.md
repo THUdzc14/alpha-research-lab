@@ -4,8 +4,11 @@ An end-to-end research framework for constructing, testing, combining, attributi
 
 > **Project status:** the historical research workflow, reproducible artifact
 > refresh, reusable analytics layer and six-page Streamlit dashboard are
-> complete. The repository-wide consistency review and final release validation
-> have passed, and the project is ready for public portfolio presentation.
+> complete. A subsequent controlled single-factor benchmark challenge is also
+> complete and qualifies the final interpretation without changing the frozen
+> dashboard implementations. The repository-wide consistency review and final
+> release validation have passed, and the project is ready for public portfolio
+> presentation.
 
 The project follows a deliberately layered workflow:
 
@@ -21,6 +24,10 @@ Data quality
 → Monitoring
 → Final strategy decision
 ```
+
+Notebook 10 adds a controlled post-decision challenge to this sequence. It
+tests whether the component factors can falsify the initial hierarchy, then
+records a qualified conclusion without rewriting the earlier evidence.
 
 The current implementation uses daily US large-cap equity data, the present-day S&P 100 as the research universe and SPY as the market benchmark.
 
@@ -55,7 +62,8 @@ The workflow is designed to distinguish:
 | Primary forward horizon | 5 trading days for signal validation |
 | Portfolio construction | Equal-weight long and short quintiles |
 | Baseline transaction cost | 10 bps per unit of turnover |
-| Final candidates | Composite Score, Fixed 50/50 Sleeves and Pure Inverse Volatility |
+| Monitored implementations | Composite Score, Fixed 50/50 Sleeves and Pure Inverse Volatility |
+| Formal research benchmark | Realised Volatility Only |
 
 The use of current index constituents introduces survivorship bias. Results are research evidence rather than production or investable performance.
 
@@ -91,12 +99,12 @@ A central finding is that signal quality and portfolio quality are different. Mo
 
 The strategy averages the processed momentum and realised-volatility scores before ranking securities. It is retained because it has:
 
-- the highest historical return among the final candidates;
-- the highest candidate Sharpe ratio;
-- the strongest transaction-cost resilience;
+- the highest historical return among the three monitored multi-factor candidates at their selected frequencies;
+- the highest Sharpe ratio among those monitored candidates;
+- the strongest transaction-cost resilience among those monitored candidates;
 - positive results across all rebalance phases;
-- the highest median rolling Sharpe ratio; and
-- the lowest average turnover.
+- the highest median rolling Sharpe ratio among those candidates; and
+- the lowest selected-frequency average turnover among those candidates.
 
 ### Defensive alternative
 
@@ -117,9 +125,15 @@ The portfolio gives equal capital allocations to the two independent factor slee
 
 All final implementations use offset zero and transaction costs of 10 basis points per unit of turnover.
 
+Notebook 10 subsequently subjects the standalone factors and all three
+multi-factor portfolios to a common five-day implementation, identical dates,
+complete phase and cost grids, and matched risk and implementation diagnostics.
+That follow-up qualifies the hierarchy but does not alter the three frozen
+dashboard implementations.
+
 ---
 
-## Final historical results
+## Frozen monitored-implementation results
 
 | Portfolio | Net ann. return | Ann. volatility | Sharpe | Max drawdown | Mean daily turnover |
 |---|---:|---:|---:|---:|---:|
@@ -129,6 +143,35 @@ All final implementations use offset zero and transaction costs of 10 basis poin
 | SPY context | 15.55% | 17.83% | 0.900 | −33.72% | — |
 
 Composite Score slightly exceeds SPY’s annualised return but not its Sharpe ratio. SPY is a long-only contextual benchmark rather than an exposure-matched alternative.
+
+---
+
+## Controlled single-factor benchmark challenge
+
+Notebook 10 tests whether the selected hierarchy survives a direct comparison
+with Momentum Only and Realised Volatility Only. The primary controlled
+baseline gives all five active portfolios the same dates, five-day rebalance
+schedule, offset zero and 10 bps transaction cost.
+
+| Portfolio | Net ann. return | Ann. volatility | Sharpe | Max drawdown | Mean daily turnover |
+|---|---:|---:|---:|---:|---:|
+| Momentum Only | 0.95% | 22.19% | 0.154 | −50.96% | 11.14% |
+| Realised Volatility Only | 16.08% | 24.86% | 0.724 | −45.85% | 8.21% |
+| Composite Score | 13.74% | 21.33% | 0.711 | −30.63% | 10.47% |
+| Fixed 50/50 Sleeves | 10.35% | 16.84% | 0.670 | −25.66% | 8.71% |
+| Pure Inverse Volatility | 10.41% | 16.29% | 0.690 | −19.57% | 9.24% |
+
+Realised Volatility’s return, phase, cost, turnover and capacity evidence is too
+strong to omit from the formal research comparison. It is therefore retained
+as a standalone benchmark. It is not promoted automatically to the dashboard:
+its near-market beta, larger sector tilts, long-side dependence, weak 2019–2022
+result and deeper drawdown preserve a clear distinction between return
+leadership and risk-controlled implementation.
+
+Composite remains a reasonable risk-controlled multi-factor primary when that
+objective is stated explicitly. Pure Inverse Volatility remains the strongest
+defensive alternative. Momentum Only remains a component benchmark rather than
+a strategy candidate.
 
 ---
 
@@ -149,7 +192,10 @@ Its selected offset-zero result is close to its phase average and is therefore n
 
 ### Transaction costs
 
-The candidate hierarchy is unchanged across costs of 0, 5, 10, 20 and 50 basis points per unit of turnover.
+Within the three frozen monitored candidates, the selected-frequency hierarchy
+is unchanged across costs of 0, 5, 10, 20 and 50 basis points per unit of
+turnover. The later common-frequency challenge separately finds that Realised
+Volatility Only is the most cost-resilient five-day portfolio.
 
 At 50 basis points, phase-averaged annualised returns remain positive:
 
@@ -261,6 +307,10 @@ The documented results and screenshots represent the frozen July 2026 research
 snapshot. When those artifacts are reconstructed locally, their stale status
 reflects elapsed calendar time rather than an artifact failure.
 
+The dashboard continues to monitor the three frozen multi-factor
+implementations. Realised Volatility Only is a formal research benchmark from
+Notebook 10, but it is not included in the current 15-artifact dashboard bundle.
+
 ---
 
 ## Dashboard preview
@@ -294,6 +344,7 @@ Detailed operating and reproduction instructions are available in the [dashboard
 | `07_performance_and_short_side_attribution.ipynb` | Performance, risk, contribution and short-side attribution |
 | `08_strategy_monitoring_and_diagnostics.ipynb` | Signal, risk, concentration and implementation monitoring |
 | `09_final_strategy_assessment.ipynb` | Final evidence synthesis and strategy hierarchy |
+| `10_single_factor_benchmark_challenge.ipynb` | Controlled standalone-factor challenge and qualified conclusion |
 
 ---
 
@@ -323,6 +374,7 @@ alpha-research-lab/
 │   ├── 07_performance_and_short_side_attribution.ipynb
 │   ├── 08_strategy_monitoring_and_diagnostics.ipynb
 │   ├── 09_final_strategy_assessment.ipynb
+│   ├── 10_single_factor_benchmark_challenge.ipynb
 │   └── experiments/
 ├── scripts/
 │   ├── download_data.py
@@ -511,11 +563,15 @@ See [`docs/methodology.md`](docs/methodology.md) for detailed assumptions.
 The research implementation, dashboard, documentation and controlled
 repository-wide consistency review are complete. The full test suite, static
 checks, six-page dashboard smoke validation and 15-artifact reconciliation also
-passed after the revision. The repository is ready for public release.
+passed after the revision. The controlled standalone-factor challenge is
+documented as a qualification to the frozen hierarchy, with Realised Volatility
+Only retained as a formal research benchmark rather than a monitored dashboard
+implementation. The repository is ready for public release.
 
 Possible later extensions include genuinely unseen forward evaluation,
-paper-trading infrastructure, scheduled refreshes and deployment. They are not
-requirements of the completed historical research project.
+paper-trading infrastructure, dashboard monitoring of the formal standalone
+benchmark, scheduled refreshes and deployment. They are not requirements of the
+completed historical research project.
 
 ---
 

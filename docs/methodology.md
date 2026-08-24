@@ -12,13 +12,19 @@ SPY is used as:
 - the explanatory return in beta estimation; and
 - the hedge instrument in diagnostic beta-neutralisation experiments.
 
-The final strategy comparison uses three frozen implementations:
+The dashboard implementation set uses three frozen multi-factor portfolios:
 
 | Portfolio | Frequency | Offset | Cost assumption |
 |---|---:|---:|---:|
 | Composite Score | 21 trading days | 0 | 10 bps |
 | Fixed 50/50 Sleeves | 10 trading days | 0 | 10 bps |
 | Pure Inverse Volatility | 10 trading days | 0 | 10 bps |
+
+A subsequent controlled benchmark challenge compares these portfolios with
+Momentum Only and Realised Volatility Only under identical dates and
+implementation assumptions. Realised Volatility Only is retained as a formal
+research benchmark, but it is not added to the frozen dashboard implementation
+set or the 15-artifact bundle.
 
 ---
 
@@ -355,6 +361,32 @@ $$
 Equal sleeve allocations are used during the initial estimation warm-up.
 
 For two positive-weight sleeves, inverse-volatility allocation equalises component risk contributions under the covariance structure used in the experiment. It does not guarantee equal realised future risk.
+
+### 8.4 Controlled standalone-factor benchmark
+
+The standalone challenge is a falsification exercise rather than a new
+optimisation stage. It reconstructs five active portfolios with the same
+backtest engine:
+
+- Momentum Only;
+- Realised Volatility Only;
+- Composite Score;
+- Fixed 50/50 Sleeves; and
+- Pure Inverse Volatility.
+
+The primary comparison uses the common 7 January 2016 to 1 July 2026 window,
+five-day rebalancing, offset zero and 10 bps per unit of turnover. Robustness
+then evaluates 1-, 5-, 10- and 21-day frequencies, every valid offset and costs
+of 0, 5, 10, 20 and 50 bps. SPY remains a contextual long-only benchmark.
+
+No standalone implementation is selected by choosing its best historical
+frequency. Phase distributions and matched-frequency comparisons receive more
+weight than a single offset-zero result.
+
+The challenge also applies the existing beta, sector, concentration,
+attribution, liquidity and capacity definitions. This preserves the original
+factor directions, quintiles, gross budgets, holdings drift, return alignment,
+missing-return treatment and 1% participation assumption.
 
 ---
 
@@ -728,6 +760,29 @@ The final hierarchy is:
 2. Pure Inverse Volatility — defensive alternative;
 3. Fixed 50/50 Sleeves — transparent benchmark.
 
+### Controlled follow-up and qualified conclusion
+
+Notebook 10 preserves that frozen implementation set but tests it against the
+standalone factors on a common five-day schedule. Realised Volatility Only
+produces the strongest active return, narrowly exceeds Composite on Sharpe,
+leads the phase and cost evidence, and has the lowest turnover and highest
+measured capacity.
+
+The same portfolio has materially higher beta, volatility, sector imbalance
+and drawdown than Composite or the sleeve portfolios. Its short leg detracts in
+every subperiod, and its result depends strongly on the post-2022 period.
+
+The resulting research decision is therefore:
+
+1. retain Composite as an explicitly risk-controlled multi-factor primary;
+2. retain Pure Inverse Volatility as the defensive alternative;
+3. retain Fixed 50/50 Sleeves as the transparent allocation benchmark;
+4. add Realised Volatility Only as a formal standalone research benchmark; and
+5. retain Momentum Only as a component benchmark rather than a strategy candidate.
+
+This conclusion does not use a weighted score and does not promote the
+standalone benchmark into the dashboard artifact pipeline.
+
 ---
 
 ## 16. Risk-control decision
@@ -749,6 +804,10 @@ The research notebooks preserve the chronological modelling process, including e
 The final monitoring and presentation layer does not depend on live notebook state. Reusable calculations are implemented under `src/alpha_research/`, while the Streamlit application under `dashboard/` consumes validated Parquet artifacts.
 
 This separation ensures that the dashboard is a presentation and monitoring layer over the completed methodology rather than an independent source of calculations.
+
+The dashboard remains scoped to the three frozen multi-factor implementations.
+Notebook 10 and the formal Realised Volatility benchmark extend the narrative
+research record without changing the dashboard configuration or artifacts.
 
 ### 17.2 Artifact reconstruction
 
@@ -877,5 +936,6 @@ The dashboard therefore reports the same research results as the validated artif
 12. SPY is not exposure-matched to the candidate portfolios.
 13. No live, paper-trading or genuinely unseen forward validation.
 14. Third-party market data and current constituent membership can be revised after the documented snapshot.
+15. Realised Volatility Only is long-side dominated and materially dependent on the post-2022 period.
 
 These limitations prevent the results from being interpreted as production-ready or investable evidence.

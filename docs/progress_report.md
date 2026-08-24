@@ -18,7 +18,12 @@ data quality
 → final strategy selection
 ```
 
-The core research and engineering phases are complete. The project has selected a primary historical specification, retained transparent benchmarks, documented rejected methods and exposed the final evidence through reusable analytics and a Streamlit dashboard.
+The core research and engineering phases are complete. The project has selected
+a primary historical specification, retained transparent benchmarks, documented
+rejected methods and exposed the final evidence through reusable analytics and
+a Streamlit dashboard. A later controlled single-factor challenge tests and
+qualifies that decision without changing the frozen dashboard implementation
+set.
 
 ---
 
@@ -217,7 +222,8 @@ The final frequencies were:
 
 ### Cost sensitivity
 
-Composite Score retained the highest return and Sharpe ratio at every tested cost.
+Among the three monitored multi-factor candidates, Composite Score retained the
+highest return and Sharpe ratio at every tested cost.
 
 At 50 basis points, all selected candidates still produced positive phase-averaged returns.
 
@@ -332,11 +338,11 @@ All three frozen candidates passed their eligibility gates.
 
 Composite Score was selected because it combined:
 
-- the highest candidate return and Sharpe ratio;
+- the highest return and Sharpe ratio among the monitored multi-factor candidates;
 - strong rebalance-phase robustness;
-- the best transaction-cost resilience;
+- the best transaction-cost resilience among those candidates;
 - positive performance in every subperiod; and
-- the lowest average turnover.
+- the lowest selected-frequency average turnover among those candidates.
 
 The decision remains qualified by:
 
@@ -420,6 +426,47 @@ licence.
 
 ---
 
+## Milestone 14 — Controlled single-factor benchmark challenge
+
+Notebook 10 reopens the completed hierarchy for a bounded falsification test.
+Momentum Only and Realised Volatility Only are compared with all three
+multi-factor portfolios on the same 7 January 2016 to 1 July 2026 dates.
+
+The common baseline fixes five-day rebalancing, offset zero and 10 bps costs.
+The analysis also covers 1-, 5-, 10- and 21-day frequencies, every valid phase,
+0–50 bps costs, the final subperiods, rolling windows, attribution, beta,
+concentration, liquidity and capacity.
+
+### Controlled five-day results
+
+| Portfolio | Net ann. return | Ann. volatility | Sharpe | Max drawdown |
+|---|---:|---:|---:|---:|
+| Momentum Only | 0.95% | 22.19% | 0.154 | −50.96% |
+| Realised Volatility Only | 16.08% | 24.86% | 0.724 | −45.85% |
+| Composite Score | 13.74% | 21.33% | 0.711 | −30.63% |
+| Fixed 50/50 Sleeves | 10.35% | 16.84% | 0.670 | −25.66% |
+| Pure Inverse Volatility | 10.41% | 16.29% | 0.690 | −19.57% |
+
+Realised Volatility leads return, most matched phase evidence, cost resilience,
+turnover and measured capacity. Its advantage is not explained by missing
+returns or weaker liquidity coverage. The same portfolio carries higher beta,
+stronger sector tilts, greater volatility, a deeper drawdown and material
+dependence on the post-2022 period. Its short leg detracts in every subperiod.
+
+The resulting qualified hierarchy is:
+
+1. **Composite Score — risk-controlled multi-factor primary**
+2. **Pure Inverse Volatility — defensive risk-based alternative**
+3. **Fixed 50/50 Sleeves — transparent allocation benchmark**
+4. **Realised Volatility Only — formal standalone research benchmark**
+
+Momentum Only remains a component benchmark rather than a strategy candidate.
+The dashboard continues to monitor the original three frozen implementations;
+the formal standalone benchmark extends the research narrative without changing
+the 15-artifact bundle.
+
+---
+
 ## Main research lessons
 
 ### 1. Signal and portfolio quality are different
@@ -454,17 +501,23 @@ Current warnings inform interpretation. They do not justify changing a frozen st
 
 Rejected factors and allocation methods clarify which ideas do not add distinct value.
 
+### 9. A hierarchy should remain falsifiable
+
+A controlled standalone benchmark can expose a genuine return advantage while
+also showing why a lower-return portfolio remains preferable for a stated risk
+objective.
+
 ---
 
 ## Current interpretation
 
 The completed research supports the following statement:
 
-> Momentum and realised volatility contain historically useful cross-sectional information in the studied universe, and a simple composite ranking produces the strongest tested implementation after costs and phase robustness.
+> Momentum and realised volatility contain historically useful cross-sectional information in the studied universe. Composite is the preferred risk-controlled multi-factor implementation, while Realised Volatility Only is the strongest formal standalone return benchmark.
 
 It also supports an equally important qualification:
 
-> The selected portfolio is not market-neutral, is currently concentrated in market and sector risk, and has benefited substantially from the post-2022 regime.
+> Neither result is unconditional: Composite retains material market and sector risk, while Realised Volatility has higher beta, worse tail risk, long-side dependence and still greater reliance on the post-2022 regime.
 
 The project has therefore identified a coherent historical research specification—not a proven production alpha strategy.
 
@@ -477,6 +530,7 @@ The core project implementation is complete.
 The repository now contains:
 
 - the original research notebooks and empirical record;
+- a controlled standalone-factor challenge that qualifies the frozen hierarchy;
 - a tested reusable Python package;
 - deterministic artifact refresh and validation;
 - contracts and scripts for reconstructing 15 validated dashboard datasets;
@@ -484,18 +538,19 @@ The repository now contains:
 - automated and manual quality-assurance coverage; and
 - public-facing methodology, provenance and operating documentation.
 
-The documentation, repository-wide consistency review and final release-quality
-validation are complete. The project is ready for public release and portfolio
-presentation.
+The documentation, controlled benchmark challenge, repository-wide consistency
+review and final release-quality validation are complete. The project is ready
+for public release and portfolio presentation.
 
 ---
 
 ## Release status and optional extensions
 
-The research implementation, dashboard, supporting documentation and
-post-revision quality assurance are complete. No further repository work is
-required for the defined historical research scope.
+The research implementation, controlled benchmark challenge, dashboard,
+supporting documentation and post-revision quality assurance are complete. No
+further repository work is required for the defined historical research scope.
 
 Possible later extensions include forward or walk-forward evaluation,
-alternative datasets, scheduled refreshes and deployment. These are optional
-extensions rather than requirements for the completed project.
+alternative datasets, dashboard monitoring of the formal standalone benchmark,
+scheduled refreshes and deployment. These are optional extensions rather than
+requirements for the completed project.
