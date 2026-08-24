@@ -7,6 +7,7 @@ file I/O and do not redefine financial calculations owned by those modules.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from numbers import Integral
 
 import pandas as pd
 
@@ -17,6 +18,7 @@ from alpha_research.attribution import (
 from alpha_research.backtest import (
     BacktestConfig,
     run_target_weight_backtest,
+    summarise_backtest,
 )
 from alpha_research.config.research import (
     BACKTEST_RETURN_COLUMN,
@@ -35,9 +37,15 @@ from alpha_research.config.research import (
     PORTFOLIO_QUANTILES,
     PORTFOLIO_SHORT_GROSS,
     PORTFOLIO_SHORT_QUANTILE,
+    ROBUSTNESS_REBALANCE_FREQUENCIES,
+    ROBUSTNESS_TRANSACTION_COST_GRID_BPS,
     SIGNAL_VALIDATION_RETURN_COLUMN,
     STRATEGY_SPECIFICATIONS,
     selected_implementations_frame,
+)
+from alpha_research.costs import (
+    apply_linear_transaction_costs,
+    calculate_linear_transaction_cost,
 )
 from alpha_research.monitoring import (
     build_latest_monitoring_overview,
@@ -319,6 +327,225 @@ def build_common_strategy_backtests(
         raise RuntimeError("Common strategy backtests returned an invalid portfolio set.")
 
     return daily_results, holdings_results, target_weights
+
+
+def build_common_strategy_robustness_grid(
+    factor_panel: pd.DataFrame,
+    evaluation_dates: pd.DatetimeIndex,
+    *,
+    rebalance_frequencies: tuple[int, ...] = ROBUSTNESS_REBALANCE_FREQUENCIES,
+    transaction_cost_grid_bps: tuple[float, ...] = (
+        ROBUSTNESS_TRANSACTION_COST_GRID_BPS
+    ),
+) -> pd.DataFrame:
+    """Summarise all common-strategy frequency, cost, and phase variants.
+
+    Each frequency-offset schedule is backtested once at zero cost. The linear
+    cost grid is then applied to the resulting gross returns and turnover, which
+    is exact because costs do not feed back into the drift-weight denominator.
+    Rows are returned in portfolio, supplied-frequency, offset, supplied-cost
+    order and no security-level holdings are retained between schedules.
+    """
+    dates = pd.DatetimeIndex(
+        pd.to_datetime(evaluation_dates, errors="raise")
+    ).sort_values()
+
+    if dates.empty:
+        raise ValueError("evaluation_dates must not be empty.")
+
+    if dates.duplicated().any():
+        raise ValueError("evaluation_dates contains duplicate dates.")
+
+    frequencies = tuple(rebalance_frequencies)
+    costs = tuple(float(cost) for cost in transaction_cost_grid_bps)
+
+    if not frequencies:
+        raise ValueError("rebalance_frequencies must not be empty.")
+
+    if any(
+        isinstance(frequency, bool)
+        or not isinstance(frequency, Integral)
+        or frequency <= 0
+        for frequency in frequencies
+    ):
+        raise ValueError("rebalance_frequencies must contain positive integers.")
+
+    if len(set(frequencies)) != len(frequencies):
+        raise ValueError("rebalance_frequencies contains duplicate values.")
+
+    if not costs:
+        raise ValueError("transaction_cost_grid_bps must not be empty.")
+
+    for cost in costs:
+        calculate_linear_transaction_cost(
+            turnover=0.0,
+            transaction_cost_bps=cost,
+        )
+
+    if len(set(costs)) != len(costs):
+        raise ValueError("transaction_cost_grid_bps contains duplicate values.")
+
+    rows: list[dict[str, object]] = []
+
+    for frequency in frequencies:
+        for offset in range(frequency):
+            config = BacktestConfig(
+                rebalance_frequency=frequency,
+                transaction_cost_bps=0.0,
+                rebalance_offset=offset,
+            )
+            daily_results, _, _ = build_common_strategy_backtests(
+                factor_panel,
+                config,
+            )
+
+            for portfolio, full_daily in daily_results.items():
+                daily = (
+                    full_daily.loc[full_daily["date"].isin(dates)]
+                    .sort_values("date")
+                    .reset_index(drop=True)
+                )
+
+                if not pd.DatetimeIndex(daily["date"]).equals(dates):
+                    raise ValueError(
+                        f"{portfolio}, frequency {frequency}, offset {offset}: "
+                        "dates do not match evaluation_dates."
+                    )
+
+                if daily["date"].duplicated().any():
+                    raise ValueError(
+                        f"{portfolio}, frequency {frequency}, offset {offset}: "
+                        "duplicate daily dates."
+                    )
+
+                gross_summary = summarise_backtest(
+                    daily,
+                    return_column="gross_return",
+                ).iloc[0]
+
+                for cost in costs:
+                    costed = apply_linear_transaction_costs(
+                        daily,
+                        transaction_cost_bps=cost,
+                    )
+                    net_summary = summarise_backtest(
+                        costed,
+                        return_column="net_return",
+                    ).iloc[0]
+                    maximum_accounting_difference = (
+                        costed["gross_return"]
+                        - costed["transaction_cost"]
+                        - costed["net_return"]
+                    ).abs().max()
+
+                    rows.append(
+                        {
+                            "portfolio": portfolio,
+                            "rebalance_frequency": frequency,
+                            "rebalance_offset": offset,
+                            "transaction_cost_bps": cost,
+                            "observations": int(net_summary["observations"]),
+                            "start_date": daily["date"].min(),
+                            "end_date": daily["date"].max(),
+                            "rebalance_days": int(daily["is_rebalance"].sum()),
+                            "gross_annualised_return": gross_summary[
+                                "annualised_return"
+                            ],
+                            "net_annualised_return": net_summary[
+                                "annualised_return"
+                            ],
+                            "annualised_return_cost_drag": (
+                                gross_summary["annualised_return"]
+                                - net_summary["annualised_return"]
+                            ),
+                            "net_annualised_volatility": net_summary[
+                                "annualised_volatility"
+                            ],
+                            "net_sharpe": net_summary["sharpe_ratio"],
+                            "net_max_drawdown": net_summary["max_drawdown"],
+                            "positive_day_fraction": net_summary[
+                                "positive_day_fraction"
+                            ],
+                            "average_daily_turnover": net_summary[
+                                "average_daily_turnover"
+                            ],
+                            "average_rebalance_turnover": net_summary[
+                                "average_rebalance_turnover"
+                            ],
+                            "cumulative_transaction_cost": net_summary[
+                                "total_transaction_cost"
+                            ],
+                            "average_gross_exposure": daily[
+                                "gross_exposure"
+                            ].mean(),
+                            "average_net_exposure": daily["net_exposure"].mean(),
+                            "maximum_missing_return_weight": daily[
+                                "missing_return_weight"
+                            ].max(),
+                            "maximum_accounting_difference": (
+                                maximum_accounting_difference
+                            ),
+                        }
+                    )
+
+    result = pd.DataFrame(rows)
+    portfolio_order = {
+        portfolio: position
+        for position, portfolio in enumerate(
+            (
+                "Momentum Only",
+                "Realised Volatility Only",
+                "Composite Score",
+                "Fixed 50/50 Sleeves",
+                "Pure Inverse Volatility",
+            )
+        )
+    }
+    frequency_order = {
+        frequency: position for position, frequency in enumerate(frequencies)
+    }
+    cost_order = {cost: position for position, cost in enumerate(costs)}
+    result = (
+        result.assign(
+            _portfolio_order=result["portfolio"].map(portfolio_order),
+            _frequency_order=result["rebalance_frequency"].map(frequency_order),
+            _cost_order=result["transaction_cost_bps"].map(cost_order),
+        )
+        .sort_values(
+            [
+                "_portfolio_order",
+                "_frequency_order",
+                "rebalance_offset",
+                "_cost_order",
+            ],
+            kind="stable",
+        )
+        .drop(columns=["_portfolio_order", "_frequency_order", "_cost_order"])
+        .reset_index(drop=True)
+    )
+
+    key_columns = [
+        "portfolio",
+        "rebalance_frequency",
+        "rebalance_offset",
+        "transaction_cost_bps",
+    ]
+    expected_rows = 5 * sum(frequencies) * len(costs)
+
+    if len(result) != expected_rows or result.duplicated(key_columns).any():
+        raise RuntimeError("Common strategy robustness grid is incomplete.")
+
+    if result["maximum_missing_return_weight"].gt(
+        DEFAULT_NUMERICAL_TOLERANCE
+    ).any():
+        raise ValueError("Common strategy robustness grid has missing-return exposure.")
+
+    if result["maximum_accounting_difference"].ge(
+        DEFAULT_NUMERICAL_TOLERANCE
+    ).any():
+        raise ValueError("Common strategy robustness grid does not reconcile.")
+
+    return result
 
 
 def build_frozen_strategy_target_weights(

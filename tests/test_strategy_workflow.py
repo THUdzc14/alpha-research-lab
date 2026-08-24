@@ -8,6 +8,7 @@ from alpha_research.portfolio import (
 )
 from alpha_research.workflows import (
     build_common_strategy_backtests,
+    build_common_strategy_robustness_grid,
     build_frozen_strategy_target_weights,
 )
 
@@ -143,6 +144,93 @@ def test_common_strategy_workflow_rejects_invalid_inputs():
         build_common_strategy_backtests(
             panel,
             BacktestConfig(beta_neutral=True),
+        )
+
+
+def test_common_strategy_robustness_grid_is_complete_and_recosted():
+    panel = make_common_strategy_panel()
+    evaluation_dates = pd.DatetimeIndex(panel["date"].unique())[-40:]
+
+    result = build_common_strategy_robustness_grid(
+        panel,
+        evaluation_dates,
+        rebalance_frequencies=(2,),
+        transaction_cost_grid_bps=(0.0, 10.0),
+    )
+
+    expected_portfolios = (
+        "Momentum Only",
+        "Realised Volatility Only",
+        "Composite Score",
+        "Fixed 50/50 Sleeves",
+        "Pure Inverse Volatility",
+    )
+    key_columns = [
+        "portfolio",
+        "rebalance_frequency",
+        "rebalance_offset",
+        "transaction_cost_bps",
+    ]
+
+    assert len(result) == len(expected_portfolios) * 2 * 2
+    assert tuple(result["portfolio"].drop_duplicates()) == expected_portfolios
+    assert set(result["rebalance_offset"]) == {0, 1}
+    assert not result.duplicated(key_columns).any()
+    assert result["observations"].eq(len(evaluation_dates)).all()
+    assert result["start_date"].eq(evaluation_dates.min()).all()
+    assert result["end_date"].eq(evaluation_dates.max()).all()
+    assert result["maximum_missing_return_weight"].eq(0.0).all()
+    assert result["maximum_accounting_difference"].lt(1e-12).all()
+
+    zero_cost = result.loc[result["transaction_cost_bps"].eq(0.0)].reset_index(
+        drop=True
+    )
+    ten_bps = result.loc[result["transaction_cost_bps"].eq(10.0)].reset_index(
+        drop=True
+    )
+
+    assert np.allclose(
+        zero_cost["gross_annualised_return"],
+        zero_cost["net_annualised_return"],
+    )
+    assert zero_cost["cumulative_transaction_cost"].eq(0.0).all()
+    assert ten_bps["cumulative_transaction_cost"].gt(0.0).all()
+    assert np.allclose(
+        zero_cost["gross_annualised_return"],
+        ten_bps["gross_annualised_return"],
+    )
+    assert np.allclose(
+        zero_cost["average_daily_turnover"],
+        ten_bps["average_daily_turnover"],
+    )
+
+
+def test_common_strategy_robustness_grid_rejects_invalid_grids():
+    panel = make_common_strategy_panel()
+    evaluation_dates = pd.DatetimeIndex(panel["date"].unique())[-20:]
+
+    with pytest.raises(ValueError, match="duplicate dates"):
+        build_common_strategy_robustness_grid(
+            panel,
+            evaluation_dates.append(evaluation_dates[-1:]),
+            rebalance_frequencies=(2,),
+            transaction_cost_grid_bps=(10.0,),
+        )
+
+    with pytest.raises(ValueError, match="positive integers"):
+        build_common_strategy_robustness_grid(
+            panel,
+            evaluation_dates,
+            rebalance_frequencies=(0,),
+            transaction_cost_grid_bps=(10.0,),
+        )
+
+    with pytest.raises(ValueError, match="non-negative"):
+        build_common_strategy_robustness_grid(
+            panel,
+            evaluation_dates,
+            rebalance_frequencies=(2,),
+            transaction_cost_grid_bps=(-1.0,),
         )
 
 
