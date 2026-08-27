@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -16,7 +18,14 @@ from alpha_research.dashboard_ui import (
     build_dashboard_filter_options,
     prepare_dashboard_freshness_table,
 )
-from dashboard.dashboard_pages import (
+
+# Streamlit executes this entry point as a file and may omit the repository
+# root from Python's import path.
+_REPOSITORY_ROOT = str(Path(__file__).resolve().parents[1])
+if _REPOSITORY_ROOT not in sys.path:
+    sys.path.insert(0, _REPOSITORY_ROOT)
+
+from dashboard.dashboard_pages import (  # noqa: E402
     render_attribution_page,
     render_implementation_liquidity_page,
     render_performance_page,

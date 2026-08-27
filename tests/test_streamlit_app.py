@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import Mock
 
 import pandas as pd
@@ -5,6 +9,37 @@ import pytest
 
 from dashboard import streamlit_app
 from alpha_research.dashboard_ui import DASHBOARD_PAGES
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_entrypoint_loads_when_repository_root_is_not_on_pythonpath(tmp_path):
+    """Match Streamlit's file-based execution outside the repository root."""
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(REPOSITORY_ROOT / "src")
+    environment["DASHBOARD_APP_PATH"] = str(
+        REPOSITORY_ROOT / "dashboard" / "streamlit_app.py"
+    )
+    probe = """
+import os
+from pathlib import Path
+import runpy
+
+app_path = Path(os.environ["DASHBOARD_APP_PATH"])
+runpy.run_path(str(app_path), run_name="_streamlit_entrypoint_probe")
+"""
+
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 PAGE_CASES = (
